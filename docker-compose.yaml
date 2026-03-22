@@ -1,0 +1,80 @@
+# docker-compose.yml
+services:
+
+  # Services
+  consignment:
+    restart: always
+    build:
+      context: .
+      dockerfile: shippy-consignment-service/Dockerfile
+    depends_on:
+      - datastore
+      - vessel
+    ports:
+      - 50051:50051
+    environment:
+      MICRO_SERVER_ADDRESS: ":50051"
+      DB_HOST: "mongodb://datastore:27017"
+
+  vessel:
+    restart: always
+    build: ./shippy-vessel-service
+    ports:
+      - 50052:50051
+    environment:
+      MICRO_SERVER_ADDRESS: ":50051"
+      DB_HOST: "mongodb://datastore:27017"
+
+  user:
+    build: ./shippy-user-service
+    ports:
+      - 50053:50051
+    environment:
+      MICRO_SERVER_ADDRESS: ":50051"
+      DB_PASSWORD: "password"
+      DB_USER: "admin"
+      DB_NAME: "shippy"
+      DB_HOST: "database"
+    depends_on:
+      - database
+
+
+
+  # Database tier
+  datastore:
+    image: mongo
+    container_name: "datastore"
+    environment:
+      - MONGO_DATA_DIR=/data/db
+      - MONGO_LOG_DIR=/dev/null
+    volumes:
+      - ./data/db:/data/db # ensures data persistence between restarting
+    ports:
+      - 27017
+    command: mongod --logpath=/dev/null
+
+  database:
+    image: postgres:alpine
+    environment:
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_USER: "admin"
+      POSTGRES_DB: "shippy"
+    ports:
+      - 5432:5432
+    volumes:
+      - ./shippy-user-service/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # Commands
+  consignment-cli:
+    build:
+      context: .
+      dockerfile: shippy-cli-consignment/Dockerfile
+    profiles:
+      - cli
+
+  user-cli:
+    build:
+      context: .
+      dockerfile: shippy-user-cli/Dockerfile
+    profiles:
+      - cli
