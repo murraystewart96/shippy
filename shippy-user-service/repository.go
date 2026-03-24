@@ -33,7 +33,7 @@ func NewPostgresRepository(db *sqlx.DB) *PostgresRepository {
 
 func (r *PostgresRepository) GetAll(ctx context.Context) ([]*User, error) {
 	users := make([]*User, 0)
-	if err := r.db.GetContext(ctx, users, "select * from users"); err != nil {
+	if err := r.db.SelectContext(ctx, &users, "select * from users"); err != nil {
 		return users, err
 	}
 
@@ -41,12 +41,12 @@ func (r *PostgresRepository) GetAll(ctx context.Context) ([]*User, error) {
 }
 
 func (r *PostgresRepository) Get(ctx context.Context, id string) (*User, error) {
-	var user *User
+	var user User
 	if err := r.db.GetContext(ctx, &user, "select * from users where id = $1", id); err != nil {
 		return nil, err
 	}
 
-	return user, nil
+	return &user, nil
 }
 
 func (r *PostgresRepository) Create(ctx context.Context, user *User) error {
@@ -58,17 +58,17 @@ func (r *PostgresRepository) Create(ctx context.Context, user *User) error {
 
 func (r *PostgresRepository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	query := "select * from users where email = $1"
-	var user *User
+	var user User
 	if err := r.db.GetContext(ctx, &user, query, email); err != nil {
 		return nil, err
 	}
-	return user, nil
+	return &user, nil
 }
 
 // HELPER
 
 func MarshalUserCollection(users []*pb.User) []*User {
-	u := make([]*User, len(users))
+	u := make([]*User, 0, len(users))
 	for _, val := range users {
 		u = append(u, MarshalUser(val))
 	}
@@ -86,7 +86,7 @@ func MarshalUser(user *pb.User) *User {
 }
 
 func UnmarshalUserCollection(users []*User) []*pb.User {
-	u := make([]*pb.User, len(users))
+	u := make([]*pb.User, 0, len(users))
 	for _, val := range users {
 		u = append(u, UnmarshalUser(val))
 	}

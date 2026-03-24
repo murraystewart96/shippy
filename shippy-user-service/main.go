@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	_ "github.com/go-micro/plugins/v4/broker/nats"
 	grpcServer "github.com/go-micro/plugins/v4/server/grpc"
 	pb "github.com/murraystewart96/shippy/shippy-user-service/proto/user"
 	micro "go-micro.dev/v4"
@@ -51,8 +52,18 @@ func main() {
 
 	repository := NewPostgresRepository(db)
 
+	tokenService := &TokenService{}
+
+	// Get broker instance
+	pubsub := service.Server().Options().Broker
+	if err := pubsub.Connect(); err != nil {
+		log.Fatal(err)
+	}
+
 	handler := &handler{
-		repository: repository,
+		repository:   repository,
+		tokenService: tokenService,
+		PubSub:       pubsub,
 	}
 
 	// Register our implementation with

@@ -31,14 +31,33 @@ services:
       - 50053:50051
     environment:
       MICRO_SERVER_ADDRESS: ":50051"
+      MICRO_BROKER: nats
+      MICRO_BROKER_ADDRESS: nats:4222
       DB_PASSWORD: "password"
       DB_USER: "admin"
       DB_NAME: "shippy"
       DB_HOST: "database"
     depends_on:
       - database
+      - nats
+
+  email:
+    build:
+      context: .
+      dockerfile: shippy-email-service/Dockerfile
+    environment:
+      MICRO_BROKER: nats
+      MICRO_BROKER_ADDRESS: nats:4222
+    depends_on:
+      - nats
 
 
+
+  # Message broker
+  nats:
+    image: nats
+    ports:
+      - 4222:4222
 
   # Database tier
   datastore:
@@ -71,7 +90,7 @@ services:
       dockerfile: shippy-cli-consignment/Dockerfile
     profiles:
       - cli
-
+    
   user-cli:
     build:
       context: .

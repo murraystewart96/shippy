@@ -27,7 +27,9 @@ func main() {
 		micro.Client(grpcClient.NewClient()),
 	)
 
-	service.Init()
+	service.Init(
+		micro.WrapHandler(AuthWrapper(service.Client())),
+	)
 
 	uri := os.Getenv("DB_HOST")
 	if uri == "" {

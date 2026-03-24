@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"log"
 
-	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 
 	grpcClient "github.com/go-micro/plugins/v4/client/grpc"
@@ -11,23 +11,19 @@ import (
 	micro "go-micro.dev/v4"
 )
 
-func createUser(ctx context.Context, service micro.Service, user *pb.User) error {
-	client := pb.NewUserService("shipping.UserService", service.Client())
-
-	res, err := client.Create(ctx, user)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Msgf("Response: %v", res.User)
-
-	return nil
-}
-
 func main() {
 	service := micro.NewService(
 		micro.Name("shipping.UserCli"),
 		micro.Client(grpcClient.NewClient()),
+	)
+
+	client := pb.NewUserService("shipping.UserService", service.Client())
+
+	var (
+		name     string
+		email    string
+		password string
+		company  string
 	)
 
 	service.Init(
@@ -38,10 +34,10 @@ func main() {
 			&cli.StringFlag{Name: "company", Usage: "Company"},
 		),
 		micro.Action(func(c *cli.Context) error {
-			name := c.String("name")
-			email := c.String("email")
-			company := c.String("company")
-			password := c.String("password")
+			name = c.String("name")
+			email = c.String("email")
+			company = c.String("company")
+			password = c.String("password")
 
 			ctx := context.Background()
 			user := &pb.User{
@@ -51,13 +47,35 @@ func main() {
 				Password: password,
 			}
 
-			if err := createUser(ctx, service, user); err != nil {
-				log.Error().Err(err).Msg("error creating user")
+			res, err := client.Create(ctx, user)
+			if err != nil {
 				return err
 			}
+
+			log.Printf("Created: %s", res.User.Id)
 
 			return nil
 		}),
 	)
+
+	all, err := client.GetAll(context.Background(), &pb.Request{})
+	if err != nil {
+		log.Fatalf("Could not list users: %v", err)
+	}
+
+	for _, user := range all.Users {
+		log.Println(user)
+
+		authResponse, err := client.Auth(context.Background(), &pb.User{
+			Email:    user.Email,
+			Password: password,
+		})
+
+		if err != nil {
+			log.Fatalf("Could not authenticate user: %s error: %v\n", email, err)
+		}
+
+		log.Printf("Your access token is: %s \n", authResponse.Token)
+	}
 
 }

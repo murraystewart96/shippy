@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY shippy-consignment-service ./shippy-consignment-service
 COPY shippy-vessel-service ./shippy-vessel-service
+COPY shippy-user-service ./shippy-user-service
 
 WORKDIR /app/shippy-consignment-service
 
