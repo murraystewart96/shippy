@@ -6,7 +6,7 @@ services:
     restart: always
     build:
       context: .
-      dockerfile: shippy-consignment-service/Dockerfile
+      dockerfile: consignment-service/Dockerfile
     depends_on:
       - datastore
       - vessel
@@ -18,7 +18,7 @@ services:
 
   vessel:
     restart: always
-    build: ./shippy-vessel-service
+    build: ./vessel-service
     ports:
       - 50052:50051
     environment:
@@ -26,7 +26,7 @@ services:
       DB_HOST: "mongodb://datastore:27017"
 
   user:
-    build: ./shippy-user-service
+    build: ./user-service
     ports:
       - 50053:50051
     environment:
@@ -44,7 +44,7 @@ services:
   email:
     build:
       context: .
-      dockerfile: shippy-email-service/Dockerfile
+      dockerfile: email-service/Dockerfile
     environment:
       MICRO_BROKER: nats
       MICRO_BROKER_ADDRESS: nats:4222
@@ -81,19 +81,19 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - ./shippy-user-service/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./user-service/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   # Commands
   consignment-cli:
     build:
       context: .
-      dockerfile: shippy-cli-consignment/Dockerfile
+      dockerfile: cli-consignment/Dockerfile
     profiles:
       - cli
     
   user-cli:
     build:
       context: .
-      dockerfile: shippy-user-cli/Dockerfile
+      dockerfile: user-cli/Dockerfile
     profiles:
       - cli
