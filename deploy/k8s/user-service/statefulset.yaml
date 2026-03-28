@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: user-service-database
+spec:
+  selector:
+    matchLabels:
+      app: user-service-database
+  serviceName: user-service-database
+  replicas: 1
+  minReadySeconds: 0
+  template:
+    metadata:
+      labels:
+        app: user-service-database
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: user-service-database
+        image: postgres:alpine
+        ports:
+        - containerPort: 5432
+          name: db
+        volumeMounts:
+        - name: init-sql
+          mountPath: /docker-entrypoint-initdb.d
+        - name: user-db-data
+          mountPath: /var/lib/postgresql/data
+        env:
+         - name: POSTGRES_DB
+           value: shippy
+         - name: POSTGRES_USER
+           valueFrom:
+            secretKeyRef:
+              name: postgres-creds
+              key: user
+         - name: POSTGRES_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: postgres-creds
+               key: password
+      volumes:
+      - name: init-sql
+        configMap:
+          name: postgres-init-sql
+  volumeClaimTemplates:
+  - metadata:
+      name: user-db-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi

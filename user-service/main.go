@@ -6,7 +6,7 @@ import (
 
 	_ "github.com/go-micro/plugins/v4/broker/nats"
 	grpcServer "github.com/go-micro/plugins/v4/server/grpc"
-	pb "github.com/murraystewart96/shippy/user-service/proto/user"
+	pb "github.com/murraystewart96/shippy/proto/user"
 	micro "go-micro.dev/v4"
 	"go-micro.dev/v4/server"
 )

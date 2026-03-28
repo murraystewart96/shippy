@@ -9,7 +9,7 @@ import (
 	"os"
 
 	grpcClient "github.com/go-micro/plugins/v4/client/grpc"
-	pb "github.com/murraystewart96/shippy/consignment-service/proto/consignment"
+	pb "github.com/murraystewart96/shippy/proto/consignment"
 	micro "go-micro.dev/v4"
 	"go-micro.dev/v4/metadata"
 )

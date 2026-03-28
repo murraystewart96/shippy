@@ -4,7 +4,7 @@ import (
 	"log"
 
 	_ "github.com/go-micro/plugins/v4/broker/nats"
-	userpb "github.com/murraystewart96/shippy/user-service/proto/user"
+	userpb "github.com/murraystewart96/shippy/proto/user"
 	micro "go-micro.dev/v4"
 	"go-micro.dev/v4/broker"
 	"google.golang.org/protobuf/encoding/protojson"

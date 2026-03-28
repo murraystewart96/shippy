@@ -7,8 +7,8 @@ import (
 
 	grpcClient "github.com/go-micro/plugins/v4/client/grpc"
 	grpcServer "github.com/go-micro/plugins/v4/server/grpc"
-	pb "github.com/murraystewart96/shippy/consignment-service/proto/consignment"
-	vesselpb "github.com/murraystewart96/shippy/vessel-service/proto/vessel"
+	pb "github.com/murraystewart96/shippy/proto/consignment"
+	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
 
 	micro "go-micro.dev/v4"
 	"go-micro.dev/v4/server"

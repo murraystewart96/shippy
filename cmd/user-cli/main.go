@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/urfave/cli/v2"
 
 	grpcClient "github.com/go-micro/plugins/v4/client/grpc"
-	pb "github.com/murraystewart96/shippy/user-service/proto/user"
+	pb "github.com/murraystewart96/shippy/proto/user"
 	micro "go-micro.dev/v4"
+	"go-micro.dev/v4/client"
 )
 
 func main() {
@@ -16,6 +18,12 @@ func main() {
 		micro.Name("shipping.UserCli"),
 		micro.Client(grpcClient.NewClient()),
 	)
+
+	addr := os.Getenv("SERVICE_ADDRESS")
+	var callOpts []client.CallOption
+	if addr != "" {
+		callOpts = append(callOpts, client.WithAddress(addr))
+	}
 
 	client := pb.NewUserService("shipping.UserService", service.Client())
 
@@ -47,7 +55,7 @@ func main() {
 				Password: password,
 			}
 
-			res, err := client.Create(ctx, user)
+			res, err := client.Create(ctx, user, callOpts...)
 			if err != nil {
 				return err
 			}
@@ -58,7 +66,7 @@ func main() {
 		}),
 	)
 
-	all, err := client.GetAll(context.Background(), &pb.Request{})
+	all, err := client.GetAll(context.Background(), &pb.Request{}, callOpts...)
 	if err != nil {
 		log.Fatalf("Could not list users: %v", err)
 	}
@@ -69,7 +77,7 @@ func main() {
 		authResponse, err := client.Auth(context.Background(), &pb.User{
 			Email:    user.Email,
 			Password: password,
-		})
+		}, callOpts...)
 
 		if err != nil {
 			log.Fatalf("Could not authenticate user: %s error: %v\n", email, err)

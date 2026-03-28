@@ -1,0 +1,11 @@
+go 1.25.5
+
+use (
+	./cmd/consignment-cli
+	./cmd/user-cli
+	./consignment-service
+	./email-service
+	./proto
+	./user-service
+	./vessel-service
+)

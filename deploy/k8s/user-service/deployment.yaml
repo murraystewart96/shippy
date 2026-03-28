@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service-deployment
+  labels:
+    app: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+      - name: user-service
+        image: shippy-user-service:latest
+        imagePullPolicy: Never
+        ports:
+          - containerPort: 50051
+        env:
+          - name: MICRO_SERVER_ADDRESS
+            value: :50051
+          - name: DB_HOST
+            value: user-service-database
+          - name: DB_NAME
+            value: shippy
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-creds
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                  name: postgres-creds
+                  key: password

@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	pb "github.com/murraystewart96/shippy/vessel-service/proto/vessel"
+	pb "github.com/murraystewart96/shippy/proto/vessel"
 )
 
 // Our grpc service handler

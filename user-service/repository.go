@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/jmoiron/sqlx"
-	pb "github.com/murraystewart96/shippy/user-service/proto/user"
+	pb "github.com/murraystewart96/shippy/proto/user"
 	uuid "github.com/satori/go.uuid"
 )
 

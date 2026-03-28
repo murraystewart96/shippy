@@ -87,13 +87,13 @@ services:
   consignment-cli:
     build:
       context: .
-      dockerfile: cli-consignment/Dockerfile
+      dockerfile: cmd/consignment-cli/Dockerfile
     profiles:
       - cli
     
   user-cli:
     build:
       context: .
-      dockerfile: user-cli/Dockerfile
+      dockerfile: cmd/user-cli/Dockerfile
     profiles:
       - cli

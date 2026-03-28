@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	userpb "github.com/murraystewart96/shippy/user-service/proto/user"
+	userpb "github.com/murraystewart96/shippy/proto/user"
 
 	"go-micro.dev/v4/client"
 	"go-micro.dev/v4/metadata"

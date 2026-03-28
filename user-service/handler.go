@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log"
 
-	pb "github.com/murraystewart96/shippy/user-service/proto/user"
+	pb "github.com/murraystewart96/shippy/proto/user"
 	"go-micro.dev/v4/broker"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/protobuf/encoding/protojson"

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	pb "github.com/murraystewart96/shippy/vessel-service/proto/vessel"
+	pb "github.com/murraystewart96/shippy/proto/vessel"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )

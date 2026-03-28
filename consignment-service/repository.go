@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	pb "github.com/murraystewart96/shippy/consignment-service/proto/consignment"
+	pb "github.com/murraystewart96/shippy/proto/consignment"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
