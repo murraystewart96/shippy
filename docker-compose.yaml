@@ -6,7 +6,7 @@ services:
     restart: always
     build:
       context: .
-      dockerfile: consignment-service/Dockerfile
+      dockerfile: cmd/consignment-service/Dockerfile
     depends_on:
       - datastore
       - vessel
@@ -18,7 +18,9 @@ services:
 
   vessel:
     restart: always
-    build: ./vessel-service
+    build:
+      context: .
+      dockerfile: cmd/vessel-service/Dockerfile
     ports:
       - 50052:50051
     environment:
@@ -26,7 +28,9 @@ services:
       DB_HOST: "mongodb://datastore:27017"
 
   user:
-    build: ./user-service
+    build:
+      context: .
+      dockerfile: cmd/user-service/Dockerfile
     ports:
       - 50053:50051
     environment:
@@ -44,7 +48,7 @@ services:
   email:
     build:
       context: .
-      dockerfile: email-service/Dockerfile
+      dockerfile: cmd/email-service/Dockerfile
     environment:
       MICRO_BROKER: nats
       MICRO_BROKER_ADDRESS: nats:4222
@@ -81,7 +85,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - ./user-service/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./cmd/user-service/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   # Commands
   consignment-cli:

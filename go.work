@@ -2,10 +2,11 @@ go 1.25.5
 
 use (
 	./cmd/consignment-cli
+	./cmd/consignment-service
+	./cmd/email-service
+	./cmd/gateway
 	./cmd/user-cli
-	./consignment-service
-	./email-service
+	./cmd/user-service
+	./cmd/vessel-service
 	./proto
-	./user-service
-	./vessel-service
 )

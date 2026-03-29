@@ -2,13 +2,14 @@ package main
 
 import (
 	"log"
+	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
-	_ "github.com/go-micro/plugins/v4/broker/nats"
-	grpcServer "github.com/go-micro/plugins/v4/server/grpc"
 	pb "github.com/murraystewart96/shippy/proto/user"
-	micro "go-micro.dev/v4"
-	"go-micro.dev/v4/server"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 const (
@@ -19,12 +20,10 @@ const (
 )
 
 func main() {
-	service := micro.NewService(
-		micro.Name("shipping.UserService"),
-		micro.Server(grpcServer.NewServer(server.Name("shipping.UserService"))),
-	)
-
-	service.Init()
+	grpcAddr := os.Getenv("GRPC_ADDRESS")
+	if grpcAddr == "" {
+		grpcAddr = ":50051"
+	}
 
 	host := os.Getenv("DB_HOST")
 	if host == "" {
@@ -43,7 +42,6 @@ func main() {
 		name = defaultName
 	}
 
-	// Create db client
 	db, err := CreatePostgresClient(host, user, password, name, 0)
 	if err != nil {
 		log.Panic(err)
@@ -51,27 +49,32 @@ func main() {
 	defer db.Close()
 
 	repository := NewPostgresRepository(db)
-
 	tokenService := &TokenService{}
-
-	// Get broker instance
-	pubsub := service.Server().Options().Broker
-	if err := pubsub.Connect(); err != nil {
-		log.Fatal(err)
-	}
 
 	handler := &handler{
 		repository:   repository,
 		tokenService: tokenService,
-		PubSub:       pubsub,
 	}
 
-	// Register our implementation with
-	if err := pb.RegisterUserServiceHandler(service.Server(), handler); err != nil {
-		log.Panic(err)
+	lis, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
 	}
 
-	if err := service.Run(); err != nil {
-		log.Panic(err)
+	srv := grpc.NewServer()
+	pb.RegisterUserServiceServer(srv, handler)
+	reflection.Register(srv)
+
+	go func() {
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		log.Println("shutting down...")
+		srv.GracefulStop()
+	}()
+
+	log.Printf("user-service listening on %s", grpcAddr)
+	if err := srv.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
 	}
 }

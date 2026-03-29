@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vessel-service
+  labels:
+    app: vessel-service
+spec: 
+  selector:
+    app: vessel-service
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+      protocol: TCP
+  type: ClusterIP

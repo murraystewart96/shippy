@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson"
@@ -36,6 +37,7 @@ type MongoRespository struct {
 }
 
 func (repo *MongoRespository) Create(ctx context.Context, consignment *Consignment) error {
+	consignment.ID = uuid.New().String()
 	log.Info().Msgf("Creating consignment: %v", *consignment)
 	_, err := repo.collection.InsertOne(ctx, consignment)
 	return err

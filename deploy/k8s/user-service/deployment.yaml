@@ -21,7 +21,7 @@ spec:
         ports:
           - containerPort: 50051
         env:
-          - name: MICRO_SERVER_ADDRESS
+          - name: GRPC_ADDRESS
             value: :50051
           - name: DB_HOST
             value: user-service-database

@@ -1,27 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata: 
-  name: consignment-service-deployment
+  name: vessel-service-deployment
   labels:
-    app: consignment-service
+    app: vessel-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: consignment-service
+      app: vessel-service
   template:
     metadata:
       labels:
-        app: consignment-service
+        app: vessel-service
     spec:
       containers:
-      - name: consignment-service
-        image: shippy-consignment-service
+      - name: vessel-service
+        image: shippy-vessel-service
         imagePullPolicy: Never
         ports:
           - containerPort: 50051
         env:
-          - name: MICRO_SERVER_ADDRESS
+          - name: GRPC_ADDRESS
             value: :50051
           - name: DB_HOST
-            value: consignment-service-database
+            value: vessel-service-database
+          - name: DB_PORT
+            value: "27017"

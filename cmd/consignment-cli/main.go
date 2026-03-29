@@ -4,73 +4,62 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"log"
 	"os"
 
-	grpcClient "github.com/go-micro/plugins/v4/client/grpc"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
-	micro "go-micro.dev/v4"
-	"go-micro.dev/v4/metadata"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
-const (
-	defaultFilename = "consignment.json"
-)
+const defaultFilename = "consignment.json"
 
 func parseFile(file string) (*pb.Consignment, error) {
 	var consignment *pb.Consignment
-	data, err := ioutil.ReadFile(file)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-
 	err = json.Unmarshal(data, &consignment)
 	return consignment, err
 }
 
 func main() {
-	service := micro.NewService(
-		micro.Name("shipping.ConsignmentCli"),
-		micro.Client(grpcClient.NewClient()),
-	)
-	service.Init()
-
-	client := pb.NewConsignmentService("shipping.ConsignmentService", service.Client())
-
-	// Contact the server and print out its response.
-	file := defaultFilename
-	var token string
-	log.Println(os.Args)
-
-	if len(os.Args) < 3 {
-		log.Fatal(errors.New("Not enough arguments, expecing file and token."))
+	addr := os.Getenv("SERVICE_ADDRESS")
+	if addr == "" {
+		addr = "localhost:50051"
 	}
 
-	file = os.Args[1]
-	token = os.Args[2]
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewConsignmentServiceClient(conn)
+
+	if len(os.Args) < 3 {
+		log.Fatal(errors.New("not enough arguments, expecting file and token"))
+	}
+
+	file := os.Args[1]
+	token := os.Args[2]
 
 	consignment, err := parseFile(file)
-
 	if err != nil {
 		log.Fatalf("Could not parse file: %v", err)
 	}
 
-	// Create a new context which contains our given token.
-	// This same context will be passed into both the calls we make
-	// to our consignment-service.
-	ctx := metadata.NewContext(context.Background(), map[string]string{
-		"token": token,
-	})
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("token", token))
 
 	res, err := client.CreateConsignment(ctx, consignment)
 	if err != nil {
-		log.Fatalf("CreateConsigment RPC failed: %v", err)
+		log.Fatalf("CreateConsignment RPC failed: %v", err)
 	}
-
 	log.Printf("Created: %t", res.Created)
 
-	res, err = client.GetConsignments(ctx, nil)
+	res, err = client.GetConsignments(ctx, &pb.GetRequest{})
 	if err != nil {
 		log.Fatalf("GetConsignments RPC failed: %v", err)
 	}

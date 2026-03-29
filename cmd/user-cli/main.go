@@ -6,26 +6,24 @@ import (
 	"os"
 
 	"github.com/urfave/cli/v2"
-
-	grpcClient "github.com/go-micro/plugins/v4/client/grpc"
 	pb "github.com/murraystewart96/shippy/proto/user"
-	micro "go-micro.dev/v4"
-	"go-micro.dev/v4/client"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
-	service := micro.NewService(
-		micro.Name("shipping.UserCli"),
-		micro.Client(grpcClient.NewClient()),
-	)
-
 	addr := os.Getenv("SERVICE_ADDRESS")
-	var callOpts []client.CallOption
-	if addr != "" {
-		callOpts = append(callOpts, client.WithAddress(addr))
+	if addr == "" {
+		addr = "localhost:50051"
 	}
 
-	client := pb.NewUserService("shipping.UserService", service.Client())
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewUserServiceClient(conn)
 
 	var (
 		name     string
@@ -34,56 +32,51 @@ func main() {
 		company  string
 	)
 
-	service.Init(
-		micro.Flags(
-			&cli.StringFlag{Name: "name", Usage: "Full name"},
-			&cli.StringFlag{Name: "email", Usage: "Email address"},
-			&cli.StringFlag{Name: "password", Usage: "Password"},
-			&cli.StringFlag{Name: "company", Usage: "Company"},
-		),
-		micro.Action(func(c *cli.Context) error {
-			name = c.String("name")
-			email = c.String("email")
-			company = c.String("company")
-			password = c.String("password")
-
+	app := &cli.App{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "name", Usage: "Full name", Destination: &name},
+			&cli.StringFlag{Name: "email", Usage: "Email address", Destination: &email},
+			&cli.StringFlag{Name: "password", Usage: "Password", Destination: &password},
+			&cli.StringFlag{Name: "company", Usage: "Company", Destination: &company},
+		},
+		Action: func(c *cli.Context) error {
 			ctx := context.Background()
-			user := &pb.User{
+
+			res, err := client.Create(ctx, &pb.User{
 				Name:     name,
 				Email:    email,
 				Company:  company,
 				Password: password,
-			}
-
-			res, err := client.Create(ctx, user, callOpts...)
+			})
 			if err != nil {
 				return err
 			}
-
 			log.Printf("Created: %s", res.User.Id)
 
+			all, err := client.GetAll(ctx, &pb.Request{})
+			if err != nil {
+				log.Fatalf("Could not list users: %v", err)
+			}
+
+			for _, user := range all.Users {
+				log.Println(user)
+
+				authResponse, err := client.Auth(ctx, &pb.User{
+					Email:    user.Email,
+					Password: password,
+				})
+				if err != nil {
+					log.Fatalf("Could not authenticate user: %s error: %v\n", email, err)
+				}
+
+				log.Printf("Your access token is: %s \n", authResponse.Token)
+			}
+
 			return nil
-		}),
-	)
-
-	all, err := client.GetAll(context.Background(), &pb.Request{}, callOpts...)
-	if err != nil {
-		log.Fatalf("Could not list users: %v", err)
+		},
 	}
 
-	for _, user := range all.Users {
-		log.Println(user)
-
-		authResponse, err := client.Auth(context.Background(), &pb.User{
-			Email:    user.Email,
-			Password: password,
-		}, callOpts...)
-
-		if err != nil {
-			log.Fatalf("Could not authenticate user: %s error: %v\n", email, err)
-		}
-
-		log.Printf("Your access token is: %s \n", authResponse.Token)
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
 	}
-
 }

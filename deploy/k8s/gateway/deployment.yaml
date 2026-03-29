@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: gateway-deployment
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+      - name: gateway
+        image: gateway
+        imagePullPolicy: Never
+        ports:
+          - containerPort: 8080
+        env:
+          - name: SERVER_ADDRESS
+            value: :8080
+          - name: USER_SERVICE_ADDRESS
+            value: "user-service:50051"
+          - name: CONSGINMENT_SERVICE_ADDRESS
+            value: "consignment-service:50051"
