@@ -25,6 +25,11 @@ func main() {
 		grpcAddr = ":50051"
 	}
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("no JWT secret")
+	}
+
 	host := os.Getenv("DB_HOST")
 	if host == "" {
 		host = defaultHost
@@ -49,7 +54,9 @@ func main() {
 	defer db.Close()
 
 	repository := NewPostgresRepository(db)
-	tokenService := &TokenService{}
+	tokenService := &TokenService{
+		jwtSecret: jwtSecret,
+	}
 
 	handler := &handler{
 		repository:   repository,

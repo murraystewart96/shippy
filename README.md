@@ -15,6 +15,8 @@ kubectl scale statefulset user-service-database --replicas=1
 
 kubectl port-forward svc/user-service 50051:50051
 
+kind load docker-image shippy-consignment-service:latest         
+
 
 # 1. Create a user
 curl -X POST http://localhost:8080/v1/users \

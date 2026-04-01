@@ -25,5 +25,10 @@ spec:
             value: :8080
           - name: USER_SERVICE_ADDRESS
             value: "user-service:50051"
-          - name: CONSGINMENT_SERVICE_ADDRESS
+          - name: CONSIGNMENT_SERVICE_ADDRESS
             value: "consignment-service:50051"
+          - name: JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: jwt-secret
+                key: secret

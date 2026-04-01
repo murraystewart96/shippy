@@ -7,26 +7,19 @@ import (
 	pb "github.com/murraystewart96/shippy/proto/user"
 )
 
-var (
-	// Define a secure key string used
-	// as a salt when hashing our tokens.
-	// Please make your own way more secure than this,
-	// use a randomly generated md5 hash or something.
-	key = []byte("415290769594460e2e485922904f345d")
-)
-
 type CustomClaims struct {
 	User *pb.User
 	jwt.StandardClaims
 }
 
 type TokenService struct {
-	repo Repository
+	repo      Repository
+	jwtSecret string
 }
 
 func (ts TokenService) Decode(token string) (*CustomClaims, error) {
 	tokenType, err := jwt.ParseWithClaims(token, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return key, nil
+		return []byte(ts.jwtSecret), nil
 	})
 	if err != nil {
 		return nil, err
@@ -51,5 +44,5 @@ func (ts *TokenService) Encode(user *pb.User) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	return token.SignedString(key)
+	return token.SignedString([]byte(ts.jwtSecret))
 }

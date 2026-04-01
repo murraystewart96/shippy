@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Gateway",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/gateway",
+      "env": {
+        "JWT_SECRET": "415290769594460e2e485922904f345d",
+        "USER_SERVICE_ADDRESS": "localhost:50053",
+        "CONSIGNMENT_SERVICE_ADDRESS": "localhost:50052"
+      }
+    }
+  ]
+}
