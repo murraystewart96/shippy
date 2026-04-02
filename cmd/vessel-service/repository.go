@@ -21,11 +21,13 @@ type Specification struct {
 }
 
 type Vessel struct {
-	ID        string `json:"id" bson:"id"`
-	Capacity  int    `json:"capacity" bson:"capacity"`
-	MaxWeight int    `json:"max_weight" bson:"max_weight"`
-	Name      string `json:"name" bson:"name"`
-	Available bool   `json:"available" bson:"available"`
+	ID             string `json:"id" bson:"id"`
+	Capacity       int    `json:"capacity" bson:"capacity"`
+	MaxWeight      int    `json:"max_weight" bson:"max_weight"`
+	ReservedWeight int    `json:"reserved_weight" bson:"reserved_weight"`
+	UsedWeight     int    `json:"used_weight" bson:"used_weight"`
+	Name           string `json:"name" bson:"name"`
+	Available      bool   `json:"available" bson:"available"`
 }
 
 type MongoRespository struct {
@@ -36,9 +38,18 @@ type MongoRespository struct {
 // if capacity and max weight are below a vessels capacity and max weight,
 // then return that vessel.
 func (repo *MongoRespository) FindAvailable(ctx context.Context, spec *Specification) (*Vessel, error) {
+	// available_weight = max_weight - reserved_weight - used_weight
 	filter := bson.M{
-		"capacity":   bson.M{"$gte": spec.Capacity},
-		"max_weight": bson.M{"$gte": spec.MaxWeight},
+		"capacity": bson.M{"$gte": spec.Capacity},
+		"$expr": bson.M{
+			"$gte": bson.A{
+				bson.M{"$subtract": bson.A{
+					bson.M{"$subtract": bson.A{"$max_weight", "$reserved_weight"}},
+					"$used_weight",
+				}},
+				spec.MaxWeight,
+			},
+		},
 	}
 
 	res := repo.collection.FindOne(ctx, filter)
@@ -65,21 +76,25 @@ func (repo *MongoRespository) Create(ctx context.Context, vessel *Vessel) error 
 
 func UnmarshalVessel(vessel *Vessel) *pb.Vessel {
 	return &pb.Vessel{
-		Id:        vessel.ID,
-		Capacity:  int32(vessel.Capacity),
-		MaxWeight: int32(vessel.MaxWeight),
-		Name:      vessel.Name,
-		Available: vessel.Available,
+		Id:             vessel.ID,
+		Capacity:       int32(vessel.Capacity),
+		MaxWeight:      int32(vessel.MaxWeight),
+		ReservedWeight: int32(vessel.ReservedWeight),
+		UsedWeight:     int32(vessel.UsedWeight),
+		Name:           vessel.Name,
+		Available:      vessel.Available,
 	}
 }
 
 func MarshalVessel(vessel *pb.Vessel) *Vessel {
 	return &Vessel{
-		ID:        vessel.Id,
-		Capacity:  int(vessel.Capacity),
-		MaxWeight: int(vessel.MaxWeight),
-		Name:      vessel.Name,
-		Available: vessel.Available,
+		ID:             vessel.Id,
+		Capacity:       int(vessel.Capacity),
+		MaxWeight:      int(vessel.MaxWeight),
+		ReservedWeight: int(vessel.ReservedWeight),
+		UsedWeight:     int(vessel.UsedWeight),
+		Name:           vessel.Name,
+		Available:      vessel.Available,
 	}
 }
 

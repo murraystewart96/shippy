@@ -11,6 +11,8 @@ message Vessel {
   string name = 4;
   bool available = 5;
   string owner_id = 6;
+  int32 reserved_weight = 7;
+  int32 used_weight = 8;
 }
 
 message Specification {

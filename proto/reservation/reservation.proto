@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package reservation;
+
+option go_package = "github.com/murraystewart96/shippy/proto/reservation";
+
+message CapacityInfo {
+    int32 weight = 1;
+    int32 number_of_containers = 2;
+}
+
+message ReservationResponse {
+    string id = 1;
+    bool reserved = 2;
+    string vessel_id = 3;
+}
+
+message ReservationRequest {
+    string id = 1;
+}
+
+message Empty {}
+
+service ReservationService {
+    rpc ReserveCapacity(CapacityInfo) returns (ReservationResponse);
+    rpc ReleaseCapacity(ReservationRequest) returns (Empty);
+    rpc ConfirmCapacity(ReservationRequest) returns (Empty);
+}

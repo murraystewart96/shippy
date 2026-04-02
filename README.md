@@ -3,6 +3,12 @@ TODO
 - mount sql files into postgres to create tables
 
 
+protoc --go_out=. --go_opt=paths=source_relative \
+       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+       proto/reservation/reservation.proto
+
+
+
 SERVICE_ADDRESS=localhost:50051 go run . --name "Test" --email "test@test.com" --password "password" --company "Test Co"
 
 SERVICE_ADDRESS=localhost:50051 go run . ./consignment.json eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJVc2VyIjp7ImlkIjoiMGZlNDgxYzgtMmEyOC00YWQ2LTliNWUtN2RjNGQ2NzYyNWI1IiwibmFtZSI6IlRlc3QiLCJjb21wYW55IjoiVGVzdCBDbyIsImVtYWlsIjoidGVzdEB0ZXN0LmNvbSIsInBhc3N3b3JkIjoiJDJhJDEwJGwwNjg1L0FWVTBnT3JMWFN3aEVueU9nLkdTV0cvTi9XcmxaRkFhUnJFbmh3N3RucnlhU0pXIn0sImV4cCI6MTc3NDk3MDE4NCwiaXNzIjoic2hpcHBpbmcuVXNlclNlcnZpY2UifQ.EEOtYmxD5xmN2xBiCY3rqx96dDOywqIlY9HKzEsxQBg
