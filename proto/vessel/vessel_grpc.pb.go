@@ -19,15 +19,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	VesselService_FindAvailable_FullMethodName = "/vessel.VesselService/FindAvailable"
-	VesselService_Create_FullMethodName        = "/vessel.VesselService/Create"
+	VesselService_ReserveCapacity_FullMethodName = "/vessel.VesselService/ReserveCapacity"
+	VesselService_ReleaseCapacity_FullMethodName = "/vessel.VesselService/ReleaseCapacity"
+	VesselService_ConfirmCapacity_FullMethodName = "/vessel.VesselService/ConfirmCapacity"
+	VesselService_Create_FullMethodName          = "/vessel.VesselService/Create"
 )
 
 // VesselServiceClient is the client API for VesselService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type VesselServiceClient interface {
-	FindAvailable(ctx context.Context, in *Specification, opts ...grpc.CallOption) (*Response, error)
+	ReserveCapacity(ctx context.Context, in *Specification, opts ...grpc.CallOption) (*Response, error)
+	ReleaseCapacity(ctx context.Context, in *CapacityRequest, opts ...grpc.CallOption) (*Empty, error)
+	ConfirmCapacity(ctx context.Context, in *CapacityRequest, opts ...grpc.CallOption) (*Empty, error)
 	Create(ctx context.Context, in *Vessel, opts ...grpc.CallOption) (*Response, error)
 }
 
@@ -39,10 +43,30 @@ func NewVesselServiceClient(cc grpc.ClientConnInterface) VesselServiceClient {
 	return &vesselServiceClient{cc}
 }
 
-func (c *vesselServiceClient) FindAvailable(ctx context.Context, in *Specification, opts ...grpc.CallOption) (*Response, error) {
+func (c *vesselServiceClient) ReserveCapacity(ctx context.Context, in *Specification, opts ...grpc.CallOption) (*Response, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Response)
-	err := c.cc.Invoke(ctx, VesselService_FindAvailable_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, VesselService_ReserveCapacity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vesselServiceClient) ReleaseCapacity(ctx context.Context, in *CapacityRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, VesselService_ReleaseCapacity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vesselServiceClient) ConfirmCapacity(ctx context.Context, in *CapacityRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, VesselService_ConfirmCapacity_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +87,9 @@ func (c *vesselServiceClient) Create(ctx context.Context, in *Vessel, opts ...gr
 // All implementations must embed UnimplementedVesselServiceServer
 // for forward compatibility.
 type VesselServiceServer interface {
-	FindAvailable(context.Context, *Specification) (*Response, error)
+	ReserveCapacity(context.Context, *Specification) (*Response, error)
+	ReleaseCapacity(context.Context, *CapacityRequest) (*Empty, error)
+	ConfirmCapacity(context.Context, *CapacityRequest) (*Empty, error)
 	Create(context.Context, *Vessel) (*Response, error)
 	mustEmbedUnimplementedVesselServiceServer()
 }
@@ -75,8 +101,14 @@ type VesselServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedVesselServiceServer struct{}
 
-func (UnimplementedVesselServiceServer) FindAvailable(context.Context, *Specification) (*Response, error) {
-	return nil, status.Error(codes.Unimplemented, "method FindAvailable not implemented")
+func (UnimplementedVesselServiceServer) ReserveCapacity(context.Context, *Specification) (*Response, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReserveCapacity not implemented")
+}
+func (UnimplementedVesselServiceServer) ReleaseCapacity(context.Context, *CapacityRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseCapacity not implemented")
+}
+func (UnimplementedVesselServiceServer) ConfirmCapacity(context.Context, *CapacityRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfirmCapacity not implemented")
 }
 func (UnimplementedVesselServiceServer) Create(context.Context, *Vessel) (*Response, error) {
 	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
@@ -102,20 +134,56 @@ func RegisterVesselServiceServer(s grpc.ServiceRegistrar, srv VesselServiceServe
 	s.RegisterService(&VesselService_ServiceDesc, srv)
 }
 
-func _VesselService_FindAvailable_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _VesselService_ReserveCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Specification)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VesselServiceServer).FindAvailable(ctx, in)
+		return srv.(VesselServiceServer).ReserveCapacity(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: VesselService_FindAvailable_FullMethodName,
+		FullMethod: VesselService_ReserveCapacity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VesselServiceServer).FindAvailable(ctx, req.(*Specification))
+		return srv.(VesselServiceServer).ReserveCapacity(ctx, req.(*Specification))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VesselService_ReleaseCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CapacityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VesselServiceServer).ReleaseCapacity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VesselService_ReleaseCapacity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VesselServiceServer).ReleaseCapacity(ctx, req.(*CapacityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VesselService_ConfirmCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CapacityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VesselServiceServer).ConfirmCapacity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VesselService_ConfirmCapacity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VesselServiceServer).ConfirmCapacity(ctx, req.(*CapacityRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -146,8 +214,16 @@ var VesselService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*VesselServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "FindAvailable",
-			Handler:    _VesselService_FindAvailable_Handler,
+			MethodName: "ReserveCapacity",
+			Handler:    _VesselService_ReserveCapacity_Handler,
+		},
+		{
+			MethodName: "ReleaseCapacity",
+			Handler:    _VesselService_ReleaseCapacity_Handler,
+		},
+		{
+			MethodName: "ConfirmCapacity",
+			Handler:    _VesselService_ConfirmCapacity_Handler,
 		},
 		{
 			MethodName: "Create",

@@ -9,5 +9,6 @@ use (
 	./cmd/user-cli
 	./cmd/user-service
 	./cmd/vessel-service
+	./pkg/kafka
 	./proto
 )

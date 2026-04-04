@@ -42,7 +42,16 @@ func main() {
 	defer mongoCli.Disconnect(context.Background())
 
 	vesselCollection := mongoCli.Database("shippy").Collection("vessels")
-	repo := &MongoRespository{collection: vesselCollection}
+	capacityOpsCollection := mongoCli.Database("shippy").Collection("capacity_operations")
+	repo := &MongoRepository{
+		client:      mongoCli,
+		vessels:     vesselCollection,
+		capacityOps: capacityOpsCollection,
+	}
+
+	if err := repo.SetupIndexes(context.Background()); err != nil {
+		log.Panicf("failed to setup indexes: %v", err)
+	}
 
 	// Seed a vessel if none exist
 	if err := repo.Create(context.Background(), &Vessel{

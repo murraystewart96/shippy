@@ -26,5 +26,9 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo)
 	// Reserve Capacity on vessel
 	// Implement rpc on vessel to find and create reservation
 
+	// Cache reservation ID and info
+
+	// Return reservation
+
 	return nil, nil
 }

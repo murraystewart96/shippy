@@ -13,12 +13,24 @@ message Vessel {
   string owner_id = 6;
   int32 reserved_weight = 7;
   int32 used_weight = 8;
+  int32 reserved_capacity = 9;
+  int32 used_capacity = 10;
 }
 
 message Specification {
   int32 capacity = 1;
   int32 max_weight = 2;
+  string reservation_id = 3;
 }
+
+message CapacityRequest {
+  string vessel_id = 1;
+  int32 weight = 2;
+  int32 number_of_containers = 3;
+  string reservation_id = 4;
+}
+
+message Empty {}
 
 message Response {
   Vessel vessel = 1;
@@ -27,6 +39,8 @@ message Response {
 }
 
 service VesselService {
-  rpc FindAvailable(Specification) returns (Response);
+  rpc ReserveCapacity(Specification) returns (Response);
+  rpc ReleaseCapacity(CapacityRequest) returns (Empty);
+  rpc ConfirmCapacity(CapacityRequest) returns (Empty);
   rpc Create(Vessel) returns (Response);
 }

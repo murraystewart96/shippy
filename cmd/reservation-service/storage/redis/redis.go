@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -61,7 +63,7 @@ func (c *Cache) Store(ctx context.Context, id string, reservation storage.Reserv
 	return nil
 }
 
-func (c *Cache) Get(ctx context.Context, id string) (storage.ReservationInfo, error) {
+func (c *Cache) GetData(ctx context.Context, id string) (storage.ReservationInfo, error) {
 	key := fmt.Sprintf(reservationDataKeyNameSpaceFmt, id)
 
 	value, err := c.client.Get(ctx, key).Bytes()
@@ -80,15 +82,97 @@ func (c *Cache) Get(ctx context.Context, id string) (storage.ReservationInfo, er
 	return info, nil
 }
 
-// Delete deletes the reservation ID. This signals that a reservation has already confirmed.
-// We leave redis to automatically remove the associated data entry.
-func (c *Cache) Delete(ctx context.Context, id string) (bool, error) {
+// GetExpired gets all data entries whose corresponding id entry has expired. These are reservations
+// that need to be cancelled.
+func (c *Cache) GetExpired(ctx context.Context) ([]*storage.ReservationInfo, error) {
+	var cursor uint64
+	var idKeys []string
+	var dataKeys []string
+
+	// Scan all active reservation ID keys
+	for {
+		var batch []string
+		var err error
+		batch, cursor, err = c.client.Scan(ctx, cursor, "reservation:*", 100).Result()
+		if err != nil {
+			return nil, err
+		}
+		idKeys = append(idKeys, batch...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// Scan all reservation data keys
+	for {
+		var batch []string
+		var err error
+		batch, cursor, err = c.client.Scan(ctx, cursor, "reservation_data:*", 100).Result()
+		if err != nil {
+			return nil, err
+		}
+		dataKeys = append(dataKeys, batch...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	if len(dataKeys) == 0 {
+		return nil, nil
+	}
+
+	// Build set of active reservation IDs
+	activeIDs := make(map[string]struct{}, len(idKeys))
+	for _, key := range idKeys {
+		activeIDs[strings.TrimPrefix(key, "reservation:")] = struct{}{}
+	}
+
+	// Fetch all reservation data values
+	values, err := c.client.MGet(ctx, dataKeys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to mget reservation data: %w", err)
+	}
+
+	var expired []*storage.ReservationInfo
+	for _, val := range values {
+		if val == nil {
+			// Entry was deleted after fetching the keys
+			continue
+		}
+
+		var reservation storage.ReservationInfo
+		if err := json.Unmarshal([]byte(val.(string)), &reservation); err != nil {
+			log.Warn().Err(err).Msg("failed to unmarshal reservation")
+			continue
+		}
+
+		// Check if reservation is still active
+		if _, active := activeIDs[reservation.Id.String()]; !active {
+			expired = append(expired, &reservation)
+		}
+	}
+
+	return expired, nil
+}
+
+func (c *Cache) DeleteData(ctx context.Context, id string) (bool, error) {
+	key := fmt.Sprintf(reservationDataKeyNameSpaceFmt, id)
+
+	deleted, err := c.client.Del(ctx, key).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to delete reservation data: %w", err)
+	}
+
+	return deleted == 1, nil
+}
+
+func (c *Cache) DeleteID(ctx context.Context, id string) (bool, error) {
 	key := fmt.Sprintf(reservationKeyNameSpaceFmt, id)
 
 	deleted, err := c.client.Del(ctx, key).Result()
 	if err != nil {
-		return false, fmt.Errorf("failed to delete reservation: %w", err)
+		return false, fmt.Errorf("failed to delete reservation id: %w", err)
 	}
 
-	return (deleted == 1), nil
+	return deleted == 1, nil
 }

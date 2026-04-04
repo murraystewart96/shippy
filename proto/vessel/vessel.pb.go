@@ -22,17 +22,19 @@ const (
 )
 
 type Vessel struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Capacity       int32                  `protobuf:"varint,2,opt,name=capacity,proto3" json:"capacity,omitempty"`
-	MaxWeight      int32                  `protobuf:"varint,3,opt,name=max_weight,json=maxWeight,proto3" json:"max_weight,omitempty"`
-	Name           string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
-	Available      bool                   `protobuf:"varint,5,opt,name=available,proto3" json:"available,omitempty"`
-	OwnerId        string                 `protobuf:"bytes,6,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	ReservedWeight int32                  `protobuf:"varint,7,opt,name=reserved_weight,json=reservedWeight,proto3" json:"reserved_weight,omitempty"`
-	UsedWeight     int32                  `protobuf:"varint,8,opt,name=used_weight,json=usedWeight,proto3" json:"used_weight,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Capacity         int32                  `protobuf:"varint,2,opt,name=capacity,proto3" json:"capacity,omitempty"`
+	MaxWeight        int32                  `protobuf:"varint,3,opt,name=max_weight,json=maxWeight,proto3" json:"max_weight,omitempty"`
+	Name             string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Available        bool                   `protobuf:"varint,5,opt,name=available,proto3" json:"available,omitempty"`
+	OwnerId          string                 `protobuf:"bytes,6,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	ReservedWeight   int32                  `protobuf:"varint,7,opt,name=reserved_weight,json=reservedWeight,proto3" json:"reserved_weight,omitempty"`
+	UsedWeight       int32                  `protobuf:"varint,8,opt,name=used_weight,json=usedWeight,proto3" json:"used_weight,omitempty"`
+	ReservedCapacity int32                  `protobuf:"varint,9,opt,name=reserved_capacity,json=reservedCapacity,proto3" json:"reserved_capacity,omitempty"`
+	UsedCapacity     int32                  `protobuf:"varint,10,opt,name=used_capacity,json=usedCapacity,proto3" json:"used_capacity,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Vessel) Reset() {
@@ -121,10 +123,25 @@ func (x *Vessel) GetUsedWeight() int32 {
 	return 0
 }
 
+func (x *Vessel) GetReservedCapacity() int32 {
+	if x != nil {
+		return x.ReservedCapacity
+	}
+	return 0
+}
+
+func (x *Vessel) GetUsedCapacity() int32 {
+	if x != nil {
+		return x.UsedCapacity
+	}
+	return 0
+}
+
 type Specification struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Capacity      int32                  `protobuf:"varint,1,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	MaxWeight     int32                  `protobuf:"varint,2,opt,name=max_weight,json=maxWeight,proto3" json:"max_weight,omitempty"`
+	ReservationId string                 `protobuf:"bytes,3,opt,name=reservation_id,json=reservationId,proto3" json:"reservation_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -173,6 +190,117 @@ func (x *Specification) GetMaxWeight() int32 {
 	return 0
 }
 
+func (x *Specification) GetReservationId() string {
+	if x != nil {
+		return x.ReservationId
+	}
+	return ""
+}
+
+type CapacityRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	VesselId           string                 `protobuf:"bytes,1,opt,name=vessel_id,json=vesselId,proto3" json:"vessel_id,omitempty"`
+	Weight             int32                  `protobuf:"varint,2,opt,name=weight,proto3" json:"weight,omitempty"`
+	NumberOfContainers int32                  `protobuf:"varint,3,opt,name=number_of_containers,json=numberOfContainers,proto3" json:"number_of_containers,omitempty"`
+	ReservationId      string                 `protobuf:"bytes,4,opt,name=reservation_id,json=reservationId,proto3" json:"reservation_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CapacityRequest) Reset() {
+	*x = CapacityRequest{}
+	mi := &file_proto_vessel_vessel_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapacityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapacityRequest) ProtoMessage() {}
+
+func (x *CapacityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_vessel_vessel_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapacityRequest.ProtoReflect.Descriptor instead.
+func (*CapacityRequest) Descriptor() ([]byte, []int) {
+	return file_proto_vessel_vessel_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CapacityRequest) GetVesselId() string {
+	if x != nil {
+		return x.VesselId
+	}
+	return ""
+}
+
+func (x *CapacityRequest) GetWeight() int32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+func (x *CapacityRequest) GetNumberOfContainers() int32 {
+	if x != nil {
+		return x.NumberOfContainers
+	}
+	return 0
+}
+
+func (x *CapacityRequest) GetReservationId() string {
+	if x != nil {
+		return x.ReservationId
+	}
+	return ""
+}
+
+type Empty struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Empty) Reset() {
+	*x = Empty{}
+	mi := &file_proto_vessel_vessel_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Empty) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Empty) ProtoMessage() {}
+
+func (x *Empty) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_vessel_vessel_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Empty.ProtoReflect.Descriptor instead.
+func (*Empty) Descriptor() ([]byte, []int) {
+	return file_proto_vessel_vessel_proto_rawDescGZIP(), []int{3}
+}
+
 type Response struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Vessel        *Vessel                `protobuf:"bytes,1,opt,name=vessel,proto3" json:"vessel,omitempty"`
@@ -184,7 +312,7 @@ type Response struct {
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_proto_vessel_vessel_proto_msgTypes[2]
+	mi := &file_proto_vessel_vessel_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -196,7 +324,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_vessel_vessel_proto_msgTypes[2]
+	mi := &file_proto_vessel_vessel_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -209,7 +337,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_proto_vessel_vessel_proto_rawDescGZIP(), []int{2}
+	return file_proto_vessel_vessel_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Response) GetVessel() *Vessel {
@@ -237,7 +365,7 @@ var File_proto_vessel_vessel_proto protoreflect.FileDescriptor
 
 const file_proto_vessel_vessel_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/vessel/vessel.proto\x12\x06vessel\"\xea\x01\n" +
+	"\x19proto/vessel/vessel.proto\x12\x06vessel\"\xbc\x02\n" +
 	"\x06Vessel\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bcapacity\x18\x02 \x01(\x05R\bcapacity\x12\x1d\n" +
@@ -248,17 +376,29 @@ const file_proto_vessel_vessel_proto_rawDesc = "" +
 	"\bowner_id\x18\x06 \x01(\tR\aownerId\x12'\n" +
 	"\x0freserved_weight\x18\a \x01(\x05R\x0ereservedWeight\x12\x1f\n" +
 	"\vused_weight\x18\b \x01(\x05R\n" +
-	"usedWeight\"J\n" +
+	"usedWeight\x12+\n" +
+	"\x11reserved_capacity\x18\t \x01(\x05R\x10reservedCapacity\x12#\n" +
+	"\rused_capacity\x18\n" +
+	" \x01(\x05R\fusedCapacity\"q\n" +
 	"\rSpecification\x12\x1a\n" +
 	"\bcapacity\x18\x01 \x01(\x05R\bcapacity\x12\x1d\n" +
 	"\n" +
-	"max_weight\x18\x02 \x01(\x05R\tmaxWeight\"v\n" +
+	"max_weight\x18\x02 \x01(\x05R\tmaxWeight\x12%\n" +
+	"\x0ereservation_id\x18\x03 \x01(\tR\rreservationId\"\x9f\x01\n" +
+	"\x0fCapacityRequest\x12\x1b\n" +
+	"\tvessel_id\x18\x01 \x01(\tR\bvesselId\x12\x16\n" +
+	"\x06weight\x18\x02 \x01(\x05R\x06weight\x120\n" +
+	"\x14number_of_containers\x18\x03 \x01(\x05R\x12numberOfContainers\x12%\n" +
+	"\x0ereservation_id\x18\x04 \x01(\tR\rreservationId\"\a\n" +
+	"\x05Empty\"v\n" +
 	"\bResponse\x12&\n" +
 	"\x06vessel\x18\x01 \x01(\v2\x0e.vessel.VesselR\x06vessel\x12(\n" +
 	"\avessels\x18\x02 \x03(\v2\x0e.vessel.VesselR\avessels\x12\x18\n" +
-	"\acreated\x18\x03 \x01(\bR\acreated2u\n" +
-	"\rVesselService\x128\n" +
-	"\rFindAvailable\x12\x15.vessel.Specification\x1a\x10.vessel.Response\x12*\n" +
+	"\acreated\x18\x03 \x01(\bR\acreated2\xed\x01\n" +
+	"\rVesselService\x12:\n" +
+	"\x0fReserveCapacity\x12\x15.vessel.Specification\x1a\x10.vessel.Response\x129\n" +
+	"\x0fReleaseCapacity\x12\x17.vessel.CapacityRequest\x1a\r.vessel.Empty\x129\n" +
+	"\x0fConfirmCapacity\x12\x17.vessel.CapacityRequest\x1a\r.vessel.Empty\x12*\n" +
 	"\x06Create\x12\x0e.vessel.Vessel\x1a\x10.vessel.ResponseB0Z.github.com/murraystewart96/shippy/proto/vesselb\x06proto3"
 
 var (
@@ -273,21 +413,27 @@ func file_proto_vessel_vessel_proto_rawDescGZIP() []byte {
 	return file_proto_vessel_vessel_proto_rawDescData
 }
 
-var file_proto_vessel_vessel_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_proto_vessel_vessel_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_proto_vessel_vessel_proto_goTypes = []any{
-	(*Vessel)(nil),        // 0: vessel.Vessel
-	(*Specification)(nil), // 1: vessel.Specification
-	(*Response)(nil),      // 2: vessel.Response
+	(*Vessel)(nil),          // 0: vessel.Vessel
+	(*Specification)(nil),   // 1: vessel.Specification
+	(*CapacityRequest)(nil), // 2: vessel.CapacityRequest
+	(*Empty)(nil),           // 3: vessel.Empty
+	(*Response)(nil),        // 4: vessel.Response
 }
 var file_proto_vessel_vessel_proto_depIdxs = []int32{
 	0, // 0: vessel.Response.vessel:type_name -> vessel.Vessel
 	0, // 1: vessel.Response.vessels:type_name -> vessel.Vessel
-	1, // 2: vessel.VesselService.FindAvailable:input_type -> vessel.Specification
-	0, // 3: vessel.VesselService.Create:input_type -> vessel.Vessel
-	2, // 4: vessel.VesselService.FindAvailable:output_type -> vessel.Response
-	2, // 5: vessel.VesselService.Create:output_type -> vessel.Response
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
+	1, // 2: vessel.VesselService.ReserveCapacity:input_type -> vessel.Specification
+	2, // 3: vessel.VesselService.ReleaseCapacity:input_type -> vessel.CapacityRequest
+	2, // 4: vessel.VesselService.ConfirmCapacity:input_type -> vessel.CapacityRequest
+	0, // 5: vessel.VesselService.Create:input_type -> vessel.Vessel
+	4, // 6: vessel.VesselService.ReserveCapacity:output_type -> vessel.Response
+	3, // 7: vessel.VesselService.ReleaseCapacity:output_type -> vessel.Empty
+	3, // 8: vessel.VesselService.ConfirmCapacity:output_type -> vessel.Empty
+	4, // 9: vessel.VesselService.Create:output_type -> vessel.Response
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -304,7 +450,7 @@ func file_proto_vessel_vessel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_vessel_vessel_proto_rawDesc), len(file_proto_vessel_vessel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
