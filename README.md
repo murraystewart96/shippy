@@ -117,7 +117,6 @@ atomic delete first will process it, the other will exit cleanly.
 
 capacity.restore event received
     → CacheCleared=false:
-        → GET reservation_data:{id} — fetch vessel ID, weight, containers
         → DEL reservation_data:{id} — atomic lock
             → 0 deleted: discard fetched data, stop (already processed)
             → 1 deleted: set CacheCleared=true, call vessel service

@@ -3,7 +3,7 @@ module github.com/murraystewart96/shippy/pkg/kafka
 go 1.25.5
 
 require (
-	github.com/confluentinc/confluent-kafka-go v1.9.0
+	github.com/confluentinc/confluent-kafka-go/v2 v2.14.0
 	github.com/rs/zerolog v1.35.0
 )
 
