@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/proto/vessel"
+	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func mustMarshalEvent(t *testing.T, event *ReleaseCapacityEvent) []byte {
 
 func newManager(t *testing.T, vesselCli *mockVesselClient, cache *mockCache, outbox *mockOutbox) *Manager {
 	t.Helper()
-	mgr, err := New(vesselCli, nil, nil, []string{releaseCapacityTopic}, cache, outbox)
+	mgr, err := New(vesselCli, nil, nil, []string{ReleaseCapacityTopic}, cache, outbox, config.Manager{})
 	require.NoError(t, err)
 	return mgr
 }

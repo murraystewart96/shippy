@@ -14,27 +14,27 @@ import (
 )
 
 const (
-	reservationTTL     = 10 * time.Minute
-	reservationDataTTL = 30 * time.Minute
-
-	reservationKeyNameSpaceFmt = "reservation:%s"
-
+	reservationKeyNameSpaceFmt     = "reservation:%s"
 	reservationDataKeyNameSpaceFmt = "reservation_data:%s"
 )
 
 type Cache struct {
-	client *redis.Client
+	client             *redis.Client
+	reservationTTL     time.Duration
+	reservationDataTTL time.Duration
 }
 
 func NewCache(cfg *config.Redis) *Cache {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Password: "",
+		DB:       0,
 	})
 
 	return &Cache{
-		client: client,
+		client:             client,
+		reservationTTL:     time.Duration(cfg.ReservationTTL) * time.Second,
+		reservationDataTTL: time.Duration(cfg.ReservationDataTTL) * time.Second,
 	}
 }
 
@@ -44,7 +44,7 @@ func NewCache(cfg *config.Redis) *Cache {
 func (c *Cache) Store(ctx context.Context, id string, reservation storage.ReservationInfo) error {
 	// Store reservation ID
 	key := fmt.Sprintf(reservationKeyNameSpaceFmt, id)
-	err := c.client.Set(ctx, key, "", reservationTTL).Err()
+	err := c.client.Set(ctx, key, "", c.reservationTTL).Err()
 	if err != nil {
 		return fmt.Errorf("failed to set price: %w", err)
 	}
@@ -55,7 +55,7 @@ func (c *Cache) Store(ctx context.Context, id string, reservation storage.Reserv
 	if err != nil {
 		return fmt.Errorf("failed to marshal reservation: %w", err)
 	}
-	err = c.client.Set(ctx, dataKey, data, reservationDataTTL).Err()
+	err = c.client.Set(ctx, dataKey, data, c.reservationDataTTL).Err()
 	if err != nil {
 		return fmt.Errorf("failed to set reservation data: %w", err)
 	}

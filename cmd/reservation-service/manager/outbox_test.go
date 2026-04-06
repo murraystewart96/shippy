@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/pkg/kafka"
+	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/stretchr/testify/assert"
 )
@@ -28,9 +29,9 @@ var _ kafka.IProducer = (*mockProducer)(nil)
 func TestPublishOutbox(t *testing.T) {
 	now := time.Now()
 	events := []*storage.OutboxEvent{
-		{Id: uuid.New(), Topic: releaseCapacityTopic, Key: uuid.NewString(), Payload: []byte(`{}`)},
-		{Id: uuid.New(), Topic: releaseCapacityTopic, Key: uuid.NewString(), Payload: []byte(`{}`)},
-		{Id: uuid.New(), Topic: releaseCapacityTopic, Key: uuid.NewString(), Payload: []byte(`{}`)},
+		{Id: uuid.New(), Topic: ReleaseCapacityTopic, Key: uuid.NewString(), Payload: []byte(`{}`)},
+		{Id: uuid.New(), Topic: ReleaseCapacityTopic, Key: uuid.NewString(), Payload: []byte(`{}`)},
+		{Id: uuid.New(), Topic: ReleaseCapacityTopic, Key: uuid.NewString(), Payload: []byte(`{}`)},
 	}
 
 	publishedIDs := make([]uuid.UUID, 0)
@@ -56,7 +57,7 @@ func TestPublishOutbox(t *testing.T) {
 		},
 	}
 
-	mgr, err := New(nil, producer, nil, []string{}, nil, outbox)
+	mgr, err := New(nil, producer, nil, []string{}, nil, outbox, config.Manager{})
 	assert.NoError(t, err)
 
 	err = mgr.publishOutbox(t.Context())

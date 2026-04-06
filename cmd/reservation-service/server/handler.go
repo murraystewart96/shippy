@@ -31,8 +31,13 @@ func NewGRPCHandler(vesselCli vesselpb.VesselServiceClient, cache storage.Reserv
 }
 
 func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo) (*pb.ReservationResponse, error) {
-	// Reserve Capacity on vessel
 	reservationID := uuid.New()
+	log.Info().
+		Str("reservation_id", reservationID.String()).
+		Int32("weight", req.Weight).
+		Int32("number_of_containers", req.NumberOfContainers).
+		Msg("ReserveCapacity: calling vessel service")
+
 	spec := &vesselpb.Specification{
 		ReservationId:      reservationID.String(),
 		NumberOfContainers: req.NumberOfContainers,
@@ -41,12 +46,13 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo)
 
 	res, err := h.vesselCli.ReserveCapacity(ctx, spec)
 	if err != nil {
+		log.Error().Str("reservation_id", reservationID.String()).Err(err).Msg("ReserveCapacity: vessel call failed")
 		return nil, fmt.Errorf("vessel ReserveCapacity failed: %w", err)
 	}
 
 	vesselID, err := uuid.Parse(res.Vessel.Id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert vessel ID to uuid: %w", err)
+		return nil, fmt.Errorf("failed to convert vessel ID %s to uuid: %w", res.Vessel.Id, err)
 	}
 
 	// Cache reservation ID and info
@@ -78,6 +84,11 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo)
 		return nil, fmt.Errorf("failed to cache reservation: %w", err)
 	}
 
+	log.Info().
+		Str("reservation_id", reservationID.String()).
+		Str("vessel_id", vesselID.String()).
+		Msg("ReserveCapacity: reservation created and cached")
+
 	return &pb.ReservationResponse{
 		Id:       spec.ReservationId,
 		VesselId: vesselID.String(),
@@ -86,9 +97,12 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo)
 }
 
 func (h *GRPCHandler) ReleaseCapacity(ctx context.Context, req *pb.ReservationRequest) (*pb.Empty, error) {
+	log.Info().Str("reservation_id", req.Id).Msg("ReleaseCapacity: received")
+
 	reservation, err := h.cache.GetData(ctx, req.Id)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
+			log.Warn().Str("reservation_id", req.Id).Msg("ReleaseCapacity: reservation not found in cache")
 			return nil, status.Error(codes.NotFound, "reservation not found")
 		}
 		return nil, status.Error(codes.Internal, "failed to get reservation")
@@ -101,10 +115,16 @@ func (h *GRPCHandler) ReleaseCapacity(ctx context.Context, req *pb.ReservationRe
 		NumberOfContainers: int32(reservation.NumberOfContainers),
 	})
 	if err != nil {
+		log.Error().Str("reservation_id", req.Id).Err(err).Msg("ReleaseCapacity: vessel call failed")
 		return nil, fmt.Errorf("vessel ReleaseCapacity failed: %w", err)
 	}
 
-	// Not critical if these fail and are released again by the manager - vessel release is idempotent
+	log.Info().
+		Str("reservation_id", reservation.Id.String()).
+		Str("vessel_id", reservation.VesselID.String()).
+		Msg("ReleaseCapacity: capacity released")
+
+	// Not critical if these fail and are released again by the manager cleanup - vessel release is idempotent
 	if _, err := h.cache.DeleteData(ctx, reservation.Id.String()); err != nil {
 		log.Warn().Str("reservation id", reservation.Id.String()).Err(err).Msg("failed to delete data from cache")
 	}
@@ -116,9 +136,12 @@ func (h *GRPCHandler) ReleaseCapacity(ctx context.Context, req *pb.ReservationRe
 }
 
 func (h *GRPCHandler) ConfirmCapacity(ctx context.Context, req *pb.ReservationRequest) (*pb.Empty, error) {
+	log.Info().Str("reservation_id", req.Id).Msg("ConfirmCapacity: received")
+
 	reservation, err := h.cache.GetData(ctx, req.Id)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
+			log.Warn().Str("reservation_id", req.Id).Msg("ConfirmCapacity: reservation not found in cache")
 			return nil, status.Error(codes.NotFound, "reservation not found")
 		}
 		return nil, status.Error(codes.Internal, "failed to get reservation")
@@ -131,8 +154,14 @@ func (h *GRPCHandler) ConfirmCapacity(ctx context.Context, req *pb.ReservationRe
 		NumberOfContainers: int32(reservation.NumberOfContainers),
 	})
 	if err != nil {
+		log.Error().Str("reservation_id", req.Id).Err(err).Msg("ConfirmCapacity: vessel call failed")
 		return nil, fmt.Errorf("vessel ConfirmCapacity failed: %w", err)
 	}
+
+	log.Info().
+		Str("reservation_id", reservation.Id.String()).
+		Str("vessel_id", reservation.VesselID.String()).
+		Msg("ConfirmCapacity: capacity confirmed")
 
 	// Critical — if data key is not deleted the cleanup job will unintentionally release confirmed capacity
 	bo := backoff.WithMaxRetries(backoff.NewExponentialBackOff(

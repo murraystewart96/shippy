@@ -24,8 +24,11 @@ services:
     ports:
       - 50052:50051
     environment:
-      MICRO_SERVER_ADDRESS: ":50051"
-      DB_HOST: "mongodb://datastore:27017"
+      GRPC_ADDRESS: ":50051"
+      DB_HOST: "datastore"
+      DB_PORT: "27017"
+    depends_on:
+      - datastore
 
   user:
     build:
@@ -57,6 +60,71 @@ services:
 
 
 
+  reservation:
+    restart: always
+    build:
+      context: .
+      dockerfile: cmd/reservation-service/Dockerfile
+    ports:
+      - 50054:50051
+    environment:
+      SHIPPY_ADDRESS: ":50051"
+      SHIPPY_VESSEL_SERVICE_ADDRESS: "vessel:50051"
+      SHIPPY_REDIS_ADDR: "reservation-redis:6379"
+      SHIPPY_REDIS_RESERVATION_TTL: "60"        # 1 minute — short for testing
+      SHIPPY_REDIS_RESERVATION_DATA_TTL: "300"  # 5 minutes
+      SHIPPY_DATABASE_HOST: "reservation-db"
+      SHIPPY_DATABASE_PORT: "5432"
+      SHIPPY_DATABASE_NAME: "reservation"
+      SHIPPY_DATABASE_USER: "reservation"
+      SHIPPY_DATABASE_PASSWORD: "password"
+      SHIPPY_KAFKA_PRODUCER_BOOTSTRAP_SERVERS: "kafka:9092"
+      SHIPPY_KAFKA_PRODUCER_ACKS: "all"
+      SHIPPY_KAFKA_CONSUMER_BOOTSTRAP_SERVERS: "kafka:9092"
+      SHIPPY_KAFKA_CONSUMER_GROUP_ID: "reservation-service"
+      SHIPPY_KAFKA_CONSUMER_OFFSET_RESET: "earliest"
+      SHIPPY_MANAGER_CLEANUP_INTERVAL: "30"  # 30 seconds — short for testing
+      SHIPPY_MANAGER_OUTBOX_INTERVAL: "10"
+    depends_on:
+      - vessel
+      - reservation-db
+      - reservation-redis
+      - kafka
+
+  reservation-db:
+    image: postgres:alpine
+    environment:
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_USER: "reservation"
+      POSTGRES_DB: "reservation"
+    ports:
+      - 5433:5432
+    volumes:
+      - ./cmd/reservation-service/database/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  reservation-redis:
+    image: redis:alpine
+    command: redis-server --appendonly yes
+    ports:
+      - 6379:6379
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    ports:
+      - 9092:9092
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
   # Message broker
   nats:
     image: nats
@@ -74,7 +142,12 @@ services:
       - ./data/db:/data/db # ensures data persistence between restarting
     ports:
       - 27017
-    command: mongod --logpath=/dev/null
+    command: mongod --replSet rs0 --logpath=/dev/null
+    healthcheck:
+      test: mongosh --eval "try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'datastore:27017'}]}).ok }" --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   database:
     image: postgres:alpine
@@ -94,6 +167,11 @@ services:
       dockerfile: cmd/consignment-cli/Dockerfile
     profiles:
       - cli
+    command: ["./consignment-cli", "consignment.json", "dummy-token"]
+    environment:
+      SERVICE_ADDRESS: "consignment:50051"
+    depends_on:
+      - consignment
     
   user-cli:
     build:

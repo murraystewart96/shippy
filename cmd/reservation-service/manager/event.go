@@ -23,62 +23,88 @@ func (m *Manager) processReleaseEvents(ctx context.Context) error {
 func (m *Manager) handleReleaseReservationEvent(ctx context.Context, key, value []byte) error {
 	var event ReleaseCapacityEvent
 	if err := json.Unmarshal(value, &event); err != nil {
-		// TODO - add alert - publish to DLQ
+		// TODO - publish to DLQ
+		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal release event — manual capacity release required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
-	// If data entry was cleared on the last event attempt skip the delete check
-	// The delete check acts as a lock so that the first routine to delete the data gets to process the event
+	reservationID := event.ReservationInfo.Id.String()
+	vesselID := event.ReservationInfo.VesselID.String()
+
+	log.Info().
+		Str("reservation_id", reservationID).
+		Str("vessel_id", vesselID).
+		Int("retry_count", event.RetryCount).
+		Bool("cache_cleared", event.CacheCleared).
+		Msg("handling release reservation event")
+
 	if !event.CacheCleared {
-		// Delete the reservation entry from cache.
-		deleted, deleteErr := m.cache.DeleteData(ctx, event.ReservationInfo.Id.String())
+		deleted, deleteErr := m.cache.DeleteData(ctx, reservationID)
 		if deleteErr != nil {
-			// TODO - log errors when they happen
+			log.Error().
+				Str("reservation_id", reservationID).
+				Err(deleteErr).
+				Int("retry_count", event.RetryCount).
+				Msg("failed to delete reservation data — scheduling retry")
+
 			event.RetryCount++
 			if err := m.scheduleReleaseEvent(ctx, &event); err != nil {
 				return fmt.Errorf("failed to schedule release event retry: %w", err)
 			}
 			// TODO: publish to DLQ when event.RetryCount >= maxRetries
-
-			return fmt.Errorf("failed to delete reservation %s: %w", event.ReservationInfo.Id.String(), deleteErr)
+			return fmt.Errorf("failed to delete reservation %s: %w", reservationID, deleteErr)
 		}
 
-		// Deletes are atomic so if there was nothing to delete another routine has already
-		// handled the event
 		if !deleted {
+			log.Info().
+				Str("reservation_id", reservationID).
+				Msg("reservation data already deleted — skipping (duplicate event)")
 			return nil
 		}
 
-		// Reservation data has been cleared from the cache
-		// This is set so event retries skip the delete check
+		log.Info().Str("reservation_id", reservationID).Msg("reservation data deleted from cache")
 		event.CacheCleared = true
 	}
 
 	req := &vesselpb.CapacityRequest{
-		VesselId:           event.ReservationInfo.VesselID.String(),
+		VesselId:           vesselID,
 		Weight:             int32(event.ReservationInfo.Weight),
 		NumberOfContainers: int32(event.ReservationInfo.NumberOfContainers),
+		ReservationId:      reservationID,
 	}
 
-	// Make call to vessel service to release the capacity
+	log.Info().
+		Str("reservation_id", reservationID).
+		Str("vessel_id", vesselID).
+		Msg("calling vessel ReleaseCapacity")
+
 	_, releaseErr := m.vesselCli.ReleaseCapacity(ctx, req)
 	if releaseErr != nil {
+		log.Error().
+			Str("reservation_id", reservationID).
+			Str("vessel_id", vesselID).
+			Err(releaseErr).
+			Int("retry_count", event.RetryCount).
+			Msg("vessel ReleaseCapacity failed — scheduling retry")
+
 		event.RetryCount++
 		if err := m.scheduleReleaseEvent(ctx, &event); err != nil {
 			return fmt.Errorf("failed to schedule release event retry: %w", err)
 		}
 		// TODO: publish to DLQ when event.RetryCount >= maxRetries
-
 		return fmt.Errorf("vessel ReleaseCapacity failed: %w", releaseErr)
 	}
 
-	// Delete reservation ID from cache
-	if _, err := m.cache.DeleteID(ctx, event.ReservationInfo.Id.String()); err != nil {
-		// Not critical as cache will clean it up eventually
+	log.Info().
+		Str("reservation_id", reservationID).
+		Str("vessel_id", vesselID).
+		Msg("vessel capacity released successfully")
+
+	if _, err := m.cache.DeleteID(ctx, reservationID); err != nil {
 		log.Warn().
-			Str("reservation_id", event.ReservationInfo.Id.String()).
+			Str("reservation_id", reservationID).
 			Err(err).
-			Msg("failed to delete reservation id key")
+			Msg("failed to delete reservation id key — will expire naturally")
 	}
 
 	return nil
@@ -96,7 +122,7 @@ func (m *Manager) scheduleReleaseEvent(ctx context.Context, event *ReleaseCapaci
 	}
 
 	if err := m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
-		Topic:   releaseCapacityTopic,
+		Topic:   ReleaseCapacityTopic,
 		Key:     event.ReservationInfo.Id.String(),
 		Payload: eventJSON,
 	}); err != nil {

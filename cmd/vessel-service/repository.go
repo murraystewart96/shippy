@@ -18,6 +18,8 @@ const (
 	opConfirm = "confirm"
 )
 
+var ErrNoVesselAvailable = errors.New("no vessel available for specification")
+
 type repository interface {
 	ReserveCapacity(ctx context.Context, spec *Specification) (*Vessel, error)
 	ReleaseCapacity(ctx context.Context, req *CapacityRequest) error
@@ -132,7 +134,7 @@ func (repo *MongoRepository) ReserveCapacity(ctx context.Context, spec *Specific
 		if result.Err() != nil {
 			session.AbortTransaction(sc)
 			if errors.Is(result.Err(), mongo.ErrNoDocuments) {
-				return fmt.Errorf("no vessel available for spec: %v", spec)
+				return ErrNoVesselAvailable
 			}
 			return result.Err()
 		}

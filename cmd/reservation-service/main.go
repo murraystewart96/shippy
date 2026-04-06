@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"os/signal"
+	"sync"
+	"syscall"
+
 	"github.com/rs/zerolog/log"
 
 	"github.com/murraystewart96/shippy/pkg/kafka"
@@ -15,32 +20,43 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal().Err(err).Send()
+	}
+}
+
+func run() error {
 	cfg := &config.Config{}
 	config.ReadEnvironment("", cfg)
 
-	//
 	cache := redis.NewCache(&cfg.Redis)
 
-	//
 	vesselConn, err := grpc.NewClient(cfg.VesselService.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to connect to vessel service")
+		return err
 	}
 	defer vesselConn.Close()
 
 	vesselCli := vesselpb.NewVesselServiceClient(vesselConn)
 
-	//
 	db, err := postgres.NewDB(&cfg.DB)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to connect to DB")
+		return err
 	}
+
+	if err := kafka.EnsureTopics(context.Background(), cfg.KafkaProducer.BootstrapServers, []kafka.TopicConfig{
+		{Name: manager.ReleaseCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReleaseCapacityDLQTopic, NumPartitions: 1, ReplicationFactor: 1},
+	}); err != nil {
+		return err
+	}
+
 	producer, err := kafka.NewProducer(&kafka.ProducerConfig{
 		BootstrapServers: cfg.KafkaProducer.BootstrapServers,
 		Acks:             cfg.KafkaProducer.Acks,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create kafka producer")
+		return err
 	}
 
 	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
@@ -49,22 +65,36 @@ func main() {
 		OffsetReset:      cfg.KafkaConsumer.OffsetReset,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create kafka consumer")
+		return err
 	}
 
-	// Create manager
-	_, err = manager.New(vesselCli, producer, consumer, nil, cache, db)
+	mgr, err := manager.New(vesselCli, producer, consumer, []string{manager.ReleaseCapacityTopic}, cache, db, cfg.Manager)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create reservation manager")
+		return err
 	}
 
-	//
-	handler := server.NewGRPCHandler(vesselCli, cache)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
+	handler := server.NewGRPCHandler(vesselCli, cache)
 	grpcServer := server.NewGRPCServer(handler)
 
-	if err := server.GRPCServe(grpcServer, cfg.Address); err != nil {
-		log.Fatal().Err(err).Msg("failed start server")
+	var wg sync.WaitGroup
+	managerErrCh := mgr.Start(ctx, &wg)
+	grpcErrCh := server.GRPCServe(grpcServer, cfg.Address, &wg)
+
+	select {
+	case err := <-managerErrCh:
+		log.Error().Err(err).Msg("manager error — shutting down")
+		cancel()
+	case err := <-grpcErrCh:
+		log.Error().Err(err).Msg("gRPC server error — shutting down")
+		cancel()
+	case <-ctx.Done():
 	}
 
+	grpcServer.GracefulStop()
+	wg.Wait()
+
+	return nil
 }

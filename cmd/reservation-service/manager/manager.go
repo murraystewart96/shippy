@@ -3,21 +3,21 @@ package manager
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/murraystewart96/shippy/pkg/kafka"
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
+	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	releaseCapacityTopic    = "reservation.capacity.release"
-	releaseCapacityDLQTopic = "reservation.capacity.release.dlq"
+	ReleaseCapacityTopic    = "reservation.capacity.release"
+	ReleaseCapacityDLQTopic = "reservation.capacity.release.dlq"
 
-	maxRetries      = 3
-	cleanupInterval = 60
-	outboxInterval  = 15
+	maxRetries = 3
 )
 
 type ReleaseCapacityEvent struct {
@@ -27,12 +27,14 @@ type ReleaseCapacityEvent struct {
 }
 
 type Manager struct {
-	cache         storage.ReservationCache
-	outbox        storage.OutboxRepository
-	vesselCli     vesselpb.VesselServiceClient
-	consumer      kafka.IConsumer
-	producer      kafka.IProducer
-	eventHandlers kafka.EventHandlers
+	cache           storage.ReservationCache
+	outbox          storage.OutboxRepository
+	vesselCli       vesselpb.VesselServiceClient
+	consumer        kafka.IConsumer
+	producer        kafka.IProducer
+	eventHandlers   kafka.EventHandlers
+	cleanupInterval int
+	outboxInterval  int
 }
 
 func New(
@@ -42,17 +44,20 @@ func New(
 	topics []string,
 	cache storage.ReservationCache,
 	outbox storage.OutboxRepository,
+	cfg config.Manager,
 ) (*Manager, error) {
 	manager := &Manager{
-		cache:     cache,
-		consumer:  consumer,
-		producer:  producer,
-		vesselCli: vesselCli,
-		outbox:    outbox,
+		cache:           cache,
+		consumer:        consumer,
+		producer:        producer,
+		vesselCli:       vesselCli,
+		outbox:          outbox,
+		cleanupInterval: cfg.CleanupInterval,
+		outboxInterval:  cfg.OutboxInterval,
 	}
 
 	eventHandlers := kafka.EventHandlers{
-		releaseCapacityTopic: manager.handleReleaseReservationEvent,
+		ReleaseCapacityTopic: manager.handleReleaseReservationEvent,
 	}
 
 	// Assign configured topic handlers
@@ -70,17 +75,30 @@ func New(
 	return manager, nil
 }
 
-func (m *Manager) Start(ctx context.Context) error {
-	go m.processOutbox(ctx)
+func (m *Manager) Start(ctx context.Context, wg *sync.WaitGroup) <-chan error {
+	errCh := make(chan error, 1)
 
-	go m.processReservations(ctx)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.processOutbox(ctx)
+	}()
 
-	err := m.processReleaseEvents(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to consume release events: %w", err)
-	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.processReservations(ctx)
+	}()
 
-	return nil
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := m.processReleaseEvents(ctx); err != nil {
+			errCh <- err
+		}
+	}()
+
+	return errCh
 }
 
 // The managers responsibilites
@@ -91,15 +109,16 @@ func (m *Manager) Start(ctx context.Context) error {
 // also i think the consignment service publishes to reservation restore if it gets a failure from the payment service (after certain number of retries)
 
 func (m *Manager) processReservations(ctx context.Context) {
-	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Second)
+	ticker := time.NewTicker(time.Duration(m.cleanupInterval) * time.Second)
+	log.Info().Int("interval_seconds", m.cleanupInterval).Msg("reservation cleanup job started")
 
 	for {
 		select {
 		case <-ticker.C:
+			log.Debug().Msg("running reservation cleanup")
 			err := m.releaseReservations(ctx)
 			if err != nil {
 				log.Error().Err(err).Msg("failed to release reservations")
-
 				// TODO - alert if this fails
 			}
 		case <-ctx.Done():
@@ -115,6 +134,13 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 		return fmt.Errorf("failed to get expired reservations: %w", err)
 	}
 
+	if len(expired) == 0 {
+		log.Debug().Msg("no expired reservations found")
+		return nil
+	}
+
+	log.Info().Int("count", len(expired)).Msg("found expired reservations — scheduling release events")
+
 	for _, expiredReservation := range expired {
 		event := ReleaseCapacityEvent{
 			ReservationInfo: *expiredReservation,
@@ -127,6 +153,11 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 				Str("reservation_id", expiredReservation.Id.String()).
 				Err(err).
 				Msg("failed to schedule release event")
+		} else {
+			log.Info().
+				Str("reservation_id", expiredReservation.Id.String()).
+				Str("vessel_id", expiredReservation.VesselID.String()).
+				Msg("release event scheduled")
 		}
 	}
 

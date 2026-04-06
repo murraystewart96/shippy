@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,7 +32,7 @@ func TestReleaseReservations(t *testing.T) {
 		},
 	}
 
-	mgr, err := New(nil, nil, nil, []string{}, cache, outbox)
+	mgr, err := New(nil, nil, nil, []string{}, cache, outbox, config.Manager{})
 	assert.NoError(t, err)
 
 	err = mgr.releaseReservations(t.Context())
@@ -47,6 +48,6 @@ func TestReleaseReservations(t *testing.T) {
 	}
 	for _, e := range createdEvents {
 		assert.True(t, reservationIDs[e.Key], "unexpected reservation ID in outbox event: %s", e.Key)
-		assert.Equal(t, releaseCapacityTopic, e.Topic)
+		assert.Equal(t, ReleaseCapacityTopic, e.Topic)
 	}
 }

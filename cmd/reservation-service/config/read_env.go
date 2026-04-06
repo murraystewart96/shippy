@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const EnvPrefix = "SHIPPY_"
+const EnvPrefix = "SHIPPY"
 
 type environmentStruct interface {
 	Defaults()

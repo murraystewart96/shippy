@@ -1,21 +1,21 @@
-FROM golang:alpine as builder
+FROM golang:alpine AS builder
 
 RUN apk update && apk upgrade && \
     apk add --no-cache git
 
-RUN mkdir -p /app/cli-consignment /app/consignment-service
+RUN mkdir /app
 WORKDIR /app
 
-ENV GO111MODULE=on
+COPY cmd ./cmd
+COPY proto ./proto
+COPY go.work go.work
+COPY go.work.sum go.work.sum
 
-COPY cli-consignment ./cli-consignment
-COPY consignment-service ./consignment-service
-
-WORKDIR /app/cli-consignment
+WORKDIR /app/cmd/consignment-cli
 
 RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix . -o cli-consignment .
 
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o consignment-cli .
 
 FROM alpine:latest
 
@@ -23,7 +23,8 @@ RUN apk --no-cache add ca-certificates
 
 RUN mkdir /app
 WORKDIR /app
-COPY --from=builder /app/cli-consignment/cli-consignment .
-COPY cli-consignment/consignment.json /app/consignment.json
 
-ENTRYPOINT ["./cli-consignment"]
+COPY --from=builder /app/cmd/consignment-cli/consignment-cli .
+COPY cmd/consignment-cli/consignment.json /app/consignment.json
+
+ENTRYPOINT ["./consignment-cli"]

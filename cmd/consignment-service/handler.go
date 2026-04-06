@@ -18,11 +18,11 @@ type handler struct {
 
 func (h *handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*pb.Response, error) {
 	vesselSpec := &vesselpb.Specification{
-		Capacity:  int32(len(req.Containers)),
-		MaxWeight: req.Weight,
+		NumberOfContainers: int32(len(req.Containers)),
+		Weight:             req.Weight,
 	}
 
-	vesselResponse, err := h.vesselCli.FindAvailable(ctx, vesselSpec)
+	vesselResponse, err := h.vesselCli.ReserveCapacity(ctx, vesselSpec)
 	if err != nil {
 		log.Printf("failed to find vessel: %v\n", err)
 		return nil, status.Error(codes.Internal, "failed to find available vessel")

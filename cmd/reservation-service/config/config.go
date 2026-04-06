@@ -9,6 +9,7 @@ type Config struct {
 	VesselService VesselService `mapstructure:"vessel_service"`
 	KafkaProducer KafkaProducer `mapstructure:"kafka_producer"`
 	KafkaConsumer KafkaConsumer `mapstructure:"kafka_consumer"`
+	Manager       Manager       `mapstructure:"manager"`
 }
 
 func (c *Config) Defaults() {
@@ -18,6 +19,7 @@ func (c *Config) Defaults() {
 	c.VesselService.Defaults()
 	c.KafkaProducer.Defaults()
 	c.KafkaConsumer.Defaults()
+	c.Manager.Defaults()
 }
 
 type KafkaProducer struct {
@@ -26,6 +28,7 @@ type KafkaProducer struct {
 }
 
 func (k *KafkaProducer) Defaults() {
+	viper.SetDefault("kafka_producer.bootstrap_servers", "")
 	viper.SetDefault("kafka_producer.acks", "all")
 }
 
@@ -36,12 +39,15 @@ type KafkaConsumer struct {
 }
 
 func (k *KafkaConsumer) Defaults() {
+	viper.SetDefault("kafka_consumer.bootstrap_servers", "")
 	viper.SetDefault("kafka_consumer.group_id", "reservation-service")
 	viper.SetDefault("kafka_consumer.offset_reset", "earliest")
 }
 
 type Redis struct {
-	Addr string `mapstructure:"addr" validate:"required"`
+	Addr               string `mapstructure:"addr" validate:"required"`
+	ReservationTTL     int    `mapstructure:"reservation_ttl"`
+	ReservationDataTTL int    `mapstructure:"reservation_data_ttl"`
 
 	// TODO - configure these
 	Username string `mapstructure:"username" validate:""`
@@ -51,6 +57,8 @@ type Redis struct {
 
 func (r *Redis) Defaults() {
 	viper.SetDefault("redis.addr", ":6379")
+	viper.SetDefault("redis.reservation_ttl", 600)       // 10 minutes
+	viper.SetDefault("redis.reservation_data_ttl", 1800) // 30 minutes
 }
 
 type DB struct {
@@ -62,11 +70,11 @@ type DB struct {
 }
 
 func (db *DB) Defaults() {
-	viper.SetDefault("db.host", "localhost")
-	viper.SetDefault("db.port", "5432")
-	viper.SetDefault("db.name", "reservation")
-	viper.SetDefault("db.user", "reservation")
-	viper.SetDefault("db.password", "password")
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", "5432")
+	viper.SetDefault("database.name", "reservation")
+	viper.SetDefault("database.user", "reservation")
+	viper.SetDefault("database.password", "password")
 }
 
 type VesselService struct {
@@ -75,4 +83,14 @@ type VesselService struct {
 
 func (v *VesselService) Defaults() {
 	viper.SetDefault("vessel_service.address", "vessel-service:50051")
+}
+
+type Manager struct {
+	CleanupInterval int `mapstructure:"cleanup_interval"`
+	OutboxInterval  int `mapstructure:"outbox_interval"`
+}
+
+func (m *Manager) Defaults() {
+	viper.SetDefault("manager.cleanup_interval", 60)
+	viper.SetDefault("manager.outbox_interval", 15)
 }

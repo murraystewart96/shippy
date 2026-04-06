@@ -1,11 +1,11 @@
 package server
 
 import (
-	"fmt"
-	"log"
 	"net"
+	"sync"
 
 	pb "github.com/murraystewart96/shippy/proto/reservation"
+	"github.com/rs/zerolog/log"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -26,16 +26,21 @@ func NewGRPCServer(handler *GRPCHandler, grpcOpts ...grpc.ServerOption) *grpc.Se
 	return srv
 }
 
-func GRPCServe(server *grpc.Server, addr string) error {
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen: %w", err)
-	}
+func GRPCServe(server *grpc.Server, addr string, wg *sync.WaitGroup) <-chan error {
+	errCh := make(chan error, 1)
 
-	log.Printf("reservation-service listening on %s", addr)
-	if err := server.Serve(lis); err != nil {
-		return fmt.Errorf("failed to serve: %v", err)
-	}
+	wg.Go(func() {
+		lis, err := net.Listen("tcp", addr)
+		if err != nil {
+			errCh <- err
+			return
+		}
 
-	return nil
+		log.Info().Str("addr", addr).Msg("reservation-service listening")
+		if err := server.Serve(lis); err != nil {
+			errCh <- err
+		}
+	})
+
+	return errCh
 }

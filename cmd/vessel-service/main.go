@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/google/uuid"
 	pb "github.com/murraystewart96/shippy/proto/vessel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -55,7 +56,7 @@ func main() {
 
 	// Seed a vessel if none exist
 	if err := repo.Create(context.Background(), &Vessel{
-		ID:        "vessel001",
+		ID:        uuid.NewString(),
 		Name:      "Boaty McBoatface",
 		MaxWeight: 200000,
 		Capacity:  500,
