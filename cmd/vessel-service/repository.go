@@ -26,9 +26,9 @@ type repository interface {
 }
 
 type Specification struct {
-	ReservationID string
-	Capacity      int
-	MaxWeight     int
+	ReservationID      string
+	Weight             int
+	NumberOfContainers int
 }
 
 type CapacityRequest struct {
@@ -107,14 +107,14 @@ func (repo *MongoRepository) ReserveCapacity(ctx context.Context, spec *Specific
 							bson.M{"$subtract": bson.A{"$capacity", "$reserved_capacity"}},
 							"$used_capacity",
 						}},
-						spec.Capacity,
+						spec.NumberOfContainers,
 					}},
 					bson.M{"$gte": bson.A{
 						bson.M{"$subtract": bson.A{
 							bson.M{"$subtract": bson.A{"$max_weight", "$reserved_weight"}},
 							"$used_weight",
 						}},
-						spec.MaxWeight,
+						spec.Weight,
 					}},
 				},
 			},
@@ -122,8 +122,8 @@ func (repo *MongoRepository) ReserveCapacity(ctx context.Context, spec *Specific
 
 		update := bson.M{
 			"$inc": bson.M{
-				"reserved_weight":   spec.MaxWeight,
-				"reserved_capacity": spec.Capacity,
+				"reserved_weight":   spec.Weight,
+				"reserved_capacity": spec.NumberOfContainers,
 			},
 		}
 
@@ -308,9 +308,9 @@ func MarshalVessel(vessel *pb.Vessel) *Vessel {
 
 func MarshalSpecification(spec *pb.Specification) *Specification {
 	return &Specification{
-		ReservationID: spec.ReservationId,
-		Capacity:      int(spec.Capacity),
-		MaxWeight:     int(spec.MaxWeight),
+		ReservationID:      spec.ReservationId,
+		Weight:             int(spec.Weight),
+		NumberOfContainers: int(spec.NumberOfContainers),
 	}
 }
 

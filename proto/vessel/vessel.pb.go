@@ -138,12 +138,12 @@ func (x *Vessel) GetUsedCapacity() int32 {
 }
 
 type Specification struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Capacity      int32                  `protobuf:"varint,1,opt,name=capacity,proto3" json:"capacity,omitempty"`
-	MaxWeight     int32                  `protobuf:"varint,2,opt,name=max_weight,json=maxWeight,proto3" json:"max_weight,omitempty"`
-	ReservationId string                 `protobuf:"bytes,3,opt,name=reservation_id,json=reservationId,proto3" json:"reservation_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Weight             int32                  `protobuf:"varint,1,opt,name=weight,proto3" json:"weight,omitempty"`
+	NumberOfContainers int32                  `protobuf:"varint,2,opt,name=number_of_containers,json=numberOfContainers,proto3" json:"number_of_containers,omitempty"`
+	ReservationId      string                 `protobuf:"bytes,3,opt,name=reservation_id,json=reservationId,proto3" json:"reservation_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Specification) Reset() {
@@ -176,16 +176,16 @@ func (*Specification) Descriptor() ([]byte, []int) {
 	return file_proto_vessel_vessel_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *Specification) GetCapacity() int32 {
+func (x *Specification) GetWeight() int32 {
 	if x != nil {
-		return x.Capacity
+		return x.Weight
 	}
 	return 0
 }
 
-func (x *Specification) GetMaxWeight() int32 {
+func (x *Specification) GetNumberOfContainers() int32 {
 	if x != nil {
-		return x.MaxWeight
+		return x.NumberOfContainers
 	}
 	return 0
 }
@@ -379,11 +379,10 @@ const file_proto_vessel_vessel_proto_rawDesc = "" +
 	"usedWeight\x12+\n" +
 	"\x11reserved_capacity\x18\t \x01(\x05R\x10reservedCapacity\x12#\n" +
 	"\rused_capacity\x18\n" +
-	" \x01(\x05R\fusedCapacity\"q\n" +
-	"\rSpecification\x12\x1a\n" +
-	"\bcapacity\x18\x01 \x01(\x05R\bcapacity\x12\x1d\n" +
-	"\n" +
-	"max_weight\x18\x02 \x01(\x05R\tmaxWeight\x12%\n" +
+	" \x01(\x05R\fusedCapacity\"\x80\x01\n" +
+	"\rSpecification\x12\x16\n" +
+	"\x06weight\x18\x01 \x01(\x05R\x06weight\x120\n" +
+	"\x14number_of_containers\x18\x02 \x01(\x05R\x12numberOfContainers\x12%\n" +
 	"\x0ereservation_id\x18\x03 \x01(\tR\rreservationId\"\x9f\x01\n" +
 	"\x0fCapacityRequest\x12\x1b\n" +
 	"\tvessel_id\x18\x01 \x01(\tR\bvesselId\x12\x16\n" +

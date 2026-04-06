@@ -23,7 +23,7 @@ func (m *Manager) processReleaseEvents(ctx context.Context) error {
 func (m *Manager) handleReleaseReservationEvent(ctx context.Context, key, value []byte) error {
 	var event ReleaseCapacityEvent
 	if err := json.Unmarshal(value, &event); err != nil {
-		// TODO - republish event?
+		// TODO - add alert - publish to DLQ
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
@@ -38,6 +38,8 @@ func (m *Manager) handleReleaseReservationEvent(ctx context.Context, key, value 
 			if err := m.scheduleReleaseEvent(ctx, &event); err != nil {
 				return fmt.Errorf("failed to schedule release event retry: %w", err)
 			}
+			// TODO: publish to DLQ when event.RetryCount >= maxRetries
+
 			return fmt.Errorf("failed to delete reservation %s: %w", event.ReservationInfo.Id.String(), deleteErr)
 		}
 
@@ -65,6 +67,8 @@ func (m *Manager) handleReleaseReservationEvent(ctx context.Context, key, value 
 		if err := m.scheduleReleaseEvent(ctx, &event); err != nil {
 			return fmt.Errorf("failed to schedule release event retry: %w", err)
 		}
+		// TODO: publish to DLQ when event.RetryCount >= maxRetries
+
 		return fmt.Errorf("vessel ReleaseCapacity failed: %w", releaseErr)
 	}
 

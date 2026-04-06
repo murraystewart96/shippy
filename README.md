@@ -140,3 +140,7 @@ Implementing the outbox pattern to prevent lost events. I realised that if we de
 as it would mean perminantly losing capacity on a vessel. 
 
 The only solution was to use the outbox pattern.
+
+## Known Limitations
+Talk about everysec in redis and how there is potential reservation loss. We would handle this by
+monitoring metrics for reservations and run manual reconciliaiton job if neccessary.
