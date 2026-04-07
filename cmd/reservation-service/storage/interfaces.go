@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -17,5 +18,5 @@ type ReservationCache interface {
 type OutboxRepository interface {
 	CreateEvent(ctx context.Context, event *OutboxEvent) error
 	MarkPublished(ctx context.Context, id uuid.UUID) error
-	GetPendingEvents(ctx context.Context) ([]*OutboxEvent, error)
+	GetPendingEvents(ctx context.Context, lease time.Duration) ([]*OutboxEvent, error)
 }

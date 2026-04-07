@@ -37,7 +37,7 @@ func TestPublishOutbox(t *testing.T) {
 	publishedIDs := make([]uuid.UUID, 0)
 
 	outbox := &mockOutbox{
-		getPendingEvents: func(ctx context.Context) ([]*storage.OutboxEvent, error) {
+		getPendingEvents: func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error) {
 			return events, nil
 		},
 		markPublished: func(ctx context.Context, id uuid.UUID) error {

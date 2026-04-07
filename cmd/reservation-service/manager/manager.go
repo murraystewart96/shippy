@@ -20,7 +20,26 @@ const (
 	maxRetries = 3
 )
 
-type ReleaseCapacityEvent struct {
+type EventAction int
+
+const (
+	RELEASE EventAction = iota
+	CONFIRM
+)
+
+func (a EventAction) String() string {
+	switch a {
+	case RELEASE:
+		return "release"
+	case CONFIRM:
+		return "confirm"
+	default:
+		return "unknown"
+	}
+}
+
+type CapacityEvent struct {
+	Action          EventAction
 	ReservationInfo storage.ReservationInfo
 	CacheCleared    bool // Used for retries to know if the data entry was cleared on the last attempt
 	RetryCount      int
@@ -93,7 +112,7 @@ func (m *Manager) Start(ctx context.Context, wg *sync.WaitGroup) <-chan error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := m.processReleaseEvents(ctx); err != nil {
+		if err := m.processEvents(ctx); err != nil {
 			errCh <- err
 		}
 	}()
@@ -142,13 +161,14 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 	log.Info().Int("count", len(expired)).Msg("found expired reservations — scheduling release events")
 
 	for _, expiredReservation := range expired {
-		event := ReleaseCapacityEvent{
+		event := CapacityEvent{
+			Action:          RELEASE,
 			ReservationInfo: *expiredReservation,
 			CacheCleared:    false,
 			RetryCount:      0,
 		}
 
-		if err := m.scheduleReleaseEvent(ctx, &event); err != nil {
+		if err := m.scheduleEvent(ctx, &event); err != nil {
 			log.Warn().
 				Str("reservation_id", expiredReservation.Id.String()).
 				Err(err).

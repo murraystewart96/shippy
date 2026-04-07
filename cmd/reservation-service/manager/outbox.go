@@ -2,9 +2,11 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/rs/zerolog/log"
 )
 
@@ -27,8 +29,16 @@ func (m *Manager) processOutbox(ctx context.Context) {
 	}
 }
 
+const (
+	outboxLeaseDuration   = 30 * time.Second
+	outboxPublishDeadline = 20 * time.Second
+)
+
 func (m *Manager) publishOutbox(ctx context.Context) error {
-	events, err := m.outbox.GetPendingEvents(ctx)
+	publishCtx, cancel := context.WithTimeout(ctx, outboxPublishDeadline)
+	defer cancel()
+
+	events, err := m.outbox.GetPendingEvents(ctx, outboxLeaseDuration)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get pending outbox events")
 		// TODO - alert if this fails
@@ -42,12 +52,29 @@ func (m *Manager) publishOutbox(ctx context.Context) error {
 	log.Info().Int("count", len(events)).Msg("publishing outbox events")
 
 	for _, event := range events {
-		if err := m.producer.Produce(ctx, event.Topic, []byte(event.Key), event.Payload); err != nil {
+		if err := publishCtx.Err(); err != nil {
+			log.Info().Msg("publish deadline exceeded — remaining events will retry on next tick")
+			return nil
+		}
+
+		if err := m.producer.Produce(publishCtx, event.Topic, []byte(event.Key), event.Payload); err != nil {
 			log.Warn().
 				Str("reservation_id", event.Key).
 				Str("topic", event.Topic).
 				Err(err).
 				Msg("failed to publish outbox event")
+
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				log.Info().Msg("context cancelled — stopping outbox publish")
+				return nil
+			}
+
+			kafkaErr, ok := err.(kafka.Error)
+			if ok && kafkaErr.Code() == kafka.ErrMsgTimedOut || kafkaErr.Code() == kafka.ErrTransport {
+				log.Error().Err(kafkaErr).Msg("kafka unreachable — aborting outbox publish")
+				return err // break out entirely, all rows stay unpublished
+			}
+
 			continue
 		}
 

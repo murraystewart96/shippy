@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
@@ -48,7 +49,7 @@ func (m *mockCache) DeleteID(ctx context.Context, id string) (bool, error) {
 type mockOutbox struct {
 	createEvent      func(ctx context.Context, event *storage.OutboxEvent) error
 	markPublished    func(ctx context.Context, id uuid.UUID) error
-	getPendingEvents func(ctx context.Context) ([]*storage.OutboxEvent, error)
+	getPendingEvents func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error)
 
 	// In memory data store
 	data map[string]*storage.OutboxEvent
@@ -62,8 +63,8 @@ func (m *mockOutbox) MarkPublished(ctx context.Context, id uuid.UUID) error {
 	return m.markPublished(ctx, id)
 }
 
-func (m *mockOutbox) GetPendingEvents(ctx context.Context) ([]*storage.OutboxEvent, error) {
-	return m.getPendingEvents(ctx)
+func (m *mockOutbox) GetPendingEvents(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error) {
+	return m.getPendingEvents(ctx, lease)
 }
 
 // mockVesselClient
@@ -76,6 +77,7 @@ type mockVesselClient struct {
 
 	mu           sync.Mutex
 	releaseCalls int
+	confirmCalls int
 }
 
 func (m *mockVesselClient) ReserveCapacity(ctx context.Context, in *vesselpb.Specification, opts ...grpc.CallOption) (*vesselpb.Response, error) {

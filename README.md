@@ -61,12 +61,44 @@ curl -X POST http://localhost:8080/v1/consignments \
 
 
 
+## Booking Flow (Choreography-based Saga)
+
+The booking flow uses an authorise-then-capture payment pattern combined with the outbox pattern
+to ensure consistency without requiring distributed transactions.
+
+### Happy Path
+
+1. **Reserve capacity** — reservation service holds vessel capacity in Redis with a TTL
+2. **Create consignment** — consignment service writes a record with `status: pending`
+3. **Authorise payment** — synchronous call to payment provider; a hold is placed on the card but no money is taken. User receives "booking confirmed" response at this point.
+4. **Write outbox event** — consignment service atomically updates consignment to `status: confirming` and writes a confirm event to its outbox (carries `payment_auth_id`)
+5. **Background — capture payment** — outbox handler calls payment provider to capture the authorised amount
+6. **Background — confirm capacity** — outbox handler calls vessel service to confirm the reserved capacity
+7. **Background — mark consignment active** — consignment updated to `status: active`
+
+Steps 5–7 are handled by the consignment service outbox publisher. Capture happens before
+ConfirmCapacity — capture is the point of no return.
+
+### Failure Handling
+
+| Failure point | Action |
+|---------------|--------|
+| Reserve capacity fails | Return error to user — nothing to roll back |
+| Create consignment fails | Release capacity, return error |
+| Authorise payment fails | Release capacity, delete consignment, return error |
+| Capture fails (after retries) | Event goes to DLQ → void authorisation, release capacity, mark consignment `cancelled` |
+| ConfirmCapacity fails (after retries) | Event goes to DLQ → refund capture, mark consignment `cancelled` |
+
+Capture and ConfirmCapacity are both idempotent — safe to retry. ConfirmCapacity is backed by
+a unique compound index on `(reservation_id, operation)` in the vessel service.
+
+---
+
 ## Reservation Service Design
 
-The reservation service manages capacity holds against vessels. Once a payment is confirmed a 
-consignment is created and the reservation is confirmed. Reservations are cached until confirmed 
-or expired. If a reservation expires or is explicitly cancelled, the held capacity must be 
-released back to the vessel.
+The reservation service manages capacity holds against vessels. Reservations are cached in Redis
+until confirmed or expired. If a reservation expires or is explicitly cancelled, the held
+capacity is released back to the vessel.
 
 Capacity releases are handled via a Kafka pipeline. Release capacity events are consumed by the 
 reservation service which calls the vessel service to restore the capacity.
@@ -92,15 +124,30 @@ Both paths publish to the same `capacity.restore` topic and are handled by the s
 
 ### Handling Duplicate Events
 
-The data key acts as the processing lock. On receiving a `capacity.restore` event:
+Capacity events (release and confirm) are delivered **at-least-once**. Exactly-once is not guaranteed, so the system is designed with multiple layers of protection against duplicate processing. Each layer handles a different failure mode.
 
-1. Attempt to atomically delete the data key
-2. If 0 keys deleted — already processed, stop
-3. If 1 key deleted — proceed with capacity restore on the vessel service
-4. Also delete the ID key (cleanup, both paths follow the same code)
+#### Layer 1 — Atomic cache delete as a processing lock
 
-Because Redis DEL is atomic, only one consumer can successfully delete the data key. All 
-subsequent consumers for the same reservation exit cleanly.
+When a capacity event is received, the first action is an atomic `DEL` of the reservation data key in Redis. Redis `DEL` returns the number of keys deleted — `1` if the key existed, `0` if it was already gone. This acts as a distributed lock: only the first consumer to delete the key proceeds. Any concurrent or duplicate event sees `0` and returns immediately.
+
+#### Layer 2 — CacheCleared flag for retries
+
+If the event deletes the cache entry but then fails (e.g. the vessel service is unavailable), we need to retry — but the cache entry is already gone. The event is rescheduled with `CacheCleared=true`. On reprocessing, the atomic delete check is skipped and execution continues directly to the vessel call. From this point the processing lock no longer applies, so the vessel service must handle duplicates itself.
+
+#### Layer 3 — Vessel service idempotency
+
+The vessel service records each capacity operation (reserve, release, confirm) in a `capacity_operations` collection with a unique compound index on `(reservation_id, operation)`. Any duplicate call for the same reservation and operation is silently ignored. This is the final backstop — it applies to all duplicate events that make it through the layers above.
+
+#### Layer 4 — Outbox lease lock (horizontal scaling)
+
+The outbox publisher reads unpublished events from Postgres, publishes them to Kafka, then marks them as published. Under a single instance this is safe. With multiple instances, two publishers could read the same rows simultaneously and publish duplicates before either marks them as published.
+
+To prevent this, rows are claimed with a **30 second lease** using `SELECT FOR UPDATE SKIP LOCKED`. The first instance to acquire the lock owns the batch for 30 seconds. Other instances skip locked rows entirely.
+
+The publisher is given a **20 second context deadline** — a hard outer bound ensuring it completes well within the lease window. If the deadline is exceeded, remaining events are left unpublished and retried on the next tick.
+
+The one remaining edge case is if the Kafka client internally enqueues a message before the context is cancelled. In this scenario the event may still be delivered to Kafka despite the publisher exiting early. Layer 3 (vessel idempotency) handles this.
+
 
 ### Handling Retries
 
@@ -141,6 +188,22 @@ as it would mean perminantly losing capacity on a vessel.
 
 The only solution was to use the outbox pattern.
 
+## Horizontal scaling
+The outbox publisher and the cleanup job were not safe for multiple instances. Both poll and act:
+If we had two instances of the reservation service they could theoretically process an expired reservation at the same time
+and create an outbox event for it. We need to add a contraint so that you cannot create duplicate outbox events.
+Also the processing of the outbox event itself. Both instances could process the same event at the same time
+and then publish the event before marking the event as published in the DB. As such we need to make the 
+
 ## Known Limitations
 Talk about everysec in redis and how there is potential reservation loss. We would handle this by
 monitoring metrics for reservations and run manual reconciliaiton job if neccessary.
+
+
+Complete the confirmed flow -> reason about scaling the reservation service - what if we just wanted to scale the event consumers.
+
+NEXT. update consignment to have status field. think through the flow from start to finish. 
+
+Think about integration testing. also how can we prove vessel release is idempotent
+
+Check if mongodb works without manually initialising next time.
