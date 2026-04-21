@@ -14,36 +14,14 @@ import (
 )
 
 const (
-	ReleaseCapacityTopic    = "reservation.capacity.release"
-	ReleaseCapacityDLQTopic = "reservation.capacity.release.dlq"
+	ReleaseCapacityTopic = "reservation.capacity.release"
+	ConfirmCapacityTopic = "reservation.capacity.confirm"
+	CapacityDLQTopic     = "reservation.capacity.dlq"
+
+	ConfirmConsignmentDLQTopic = "consignment.confirm.dlq"
 
 	maxRetries = 3
 )
-
-type EventAction int
-
-const (
-	RELEASE EventAction = iota
-	CONFIRM
-)
-
-func (a EventAction) String() string {
-	switch a {
-	case RELEASE:
-		return "release"
-	case CONFIRM:
-		return "confirm"
-	default:
-		return "unknown"
-	}
-}
-
-type CapacityEvent struct {
-	Action          EventAction
-	ReservationInfo storage.ReservationInfo
-	CacheCleared    bool // Used for retries to know if the data entry was cleared on the last attempt
-	RetryCount      int
-}
 
 type Manager struct {
 	cache           storage.ReservationCache
@@ -76,7 +54,9 @@ func New(
 	}
 
 	eventHandlers := kafka.EventHandlers{
-		ReleaseCapacityTopic: manager.handleReleaseReservationEvent,
+		ReleaseCapacityTopic: manager.handleCapacityEvent,
+		ConfirmCapacityTopic: manager.handleCapacityEvent,
+		CapacityDLQTopic:     manager.handleCapacityDLQEvent,
 	}
 
 	// Assign configured topic handlers
@@ -179,6 +159,14 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 				Str("vessel_id", expiredReservation.VesselID.String()).
 				Msg("release event scheduled")
 		}
+
+		// TODO: check if this is the right level to publish
+		// We should also schedule event to cancel the consignment
+		// i think we could also use the outbox pattern here.
+		// we would either need to update the schedule event function to accept
+		// a consignment event also or we coud publish here directly
+
+		// we need the reservation info to also store the consignment ID
 	}
 
 	return nil

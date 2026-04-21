@@ -1,7 +1,6 @@
-FROM golang:alpine AS builder
+FROM golang:1.25 AS builder
 
-RUN apk update && apk upgrade && \
-    apk add --no-cache git
+RUN apt-get update && apt-get install -y git gcc
 
 RUN mkdir /app
 WORKDIR /app
@@ -16,11 +15,11 @@ WORKDIR /app/cmd/consignment-service
 
 RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o consignment-service .
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o consignment-service .
 
-FROM alpine:latest
+FROM debian:bookworm-slim
 
-RUN apk --no-cache add ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /app
 WORKDIR /app

@@ -63,6 +63,7 @@ func main() {
 	v1 := r.Group("/v1", middleware.Auth(jwtSecret))
 	{
 		v1.POST("/consignments", h.CreateConsignment)
+		v1.POST("/consignments/confirm/:id", h.ConfirmConsignment)
 		v1.GET("/consignments", h.GetConsignments)
 	}
 

@@ -19,6 +19,7 @@ type mockCache struct {
 	getExpired func(ctx context.Context) ([]*storage.ReservationInfo, error)
 	deleteData func(ctx context.Context, id string) (bool, error)
 	deleteID   func(ctx context.Context, id string) (bool, error)
+	refresh    func(ctx context.Context, id string) (bool, error)
 
 	mu              sync.Mutex
 	deleteDataCalls int
@@ -42,6 +43,10 @@ func (m *mockCache) DeleteData(ctx context.Context, id string) (bool, error) {
 
 func (m *mockCache) DeleteID(ctx context.Context, id string) (bool, error) {
 	return m.deleteID(ctx, id)
+}
+
+func (m *mockCache) Refresh(ctx context.Context, id string) (bool, error) {
+	return m.refresh(ctx, id)
 }
 
 // mockOutbox

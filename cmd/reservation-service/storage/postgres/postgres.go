@@ -13,7 +13,7 @@ type DB struct {
 }
 
 func NewDB(cfg *config.DB) (*DB, error) {
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s",
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name)
 
 	poolConfig, err := pgxpool.ParseConfig(dsn)

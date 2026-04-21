@@ -21,28 +21,29 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type CapacityInfo struct {
+type ReserveCapacityRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	Weight             int32                  `protobuf:"varint,1,opt,name=weight,proto3" json:"weight,omitempty"`
-	NumberOfContainers int32                  `protobuf:"varint,2,opt,name=number_of_containers,json=numberOfContainers,proto3" json:"number_of_containers,omitempty"`
+	ConsignmentId      string                 `protobuf:"bytes,1,opt,name=consignment_id,json=consignmentId,proto3" json:"consignment_id,omitempty"`
+	Weight             int32                  `protobuf:"varint,2,opt,name=weight,proto3" json:"weight,omitempty"`
+	NumberOfContainers int32                  `protobuf:"varint,3,opt,name=number_of_containers,json=numberOfContainers,proto3" json:"number_of_containers,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
-func (x *CapacityInfo) Reset() {
-	*x = CapacityInfo{}
+func (x *ReserveCapacityRequest) Reset() {
+	*x = ReserveCapacityRequest{}
 	mi := &file_proto_reservation_reservation_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CapacityInfo) String() string {
+func (x *ReserveCapacityRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CapacityInfo) ProtoMessage() {}
+func (*ReserveCapacityRequest) ProtoMessage() {}
 
-func (x *CapacityInfo) ProtoReflect() protoreflect.Message {
+func (x *ReserveCapacityRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_reservation_reservation_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -54,19 +55,26 @@ func (x *CapacityInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CapacityInfo.ProtoReflect.Descriptor instead.
-func (*CapacityInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use ReserveCapacityRequest.ProtoReflect.Descriptor instead.
+func (*ReserveCapacityRequest) Descriptor() ([]byte, []int) {
 	return file_proto_reservation_reservation_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *CapacityInfo) GetWeight() int32 {
+func (x *ReserveCapacityRequest) GetConsignmentId() string {
+	if x != nil {
+		return x.ConsignmentId
+	}
+	return ""
+}
+
+func (x *ReserveCapacityRequest) GetWeight() int32 {
 	if x != nil {
 		return x.Weight
 	}
 	return 0
 }
 
-func (x *CapacityInfo) GetNumberOfContainers() int32 {
+func (x *ReserveCapacityRequest) GetNumberOfContainers() int32 {
 	if x != nil {
 		return x.NumberOfContainers
 	}
@@ -133,27 +141,27 @@ func (x *ReservationResponse) GetVesselId() string {
 	return ""
 }
 
-type ReservationRequest struct {
+type CapacityActionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ReservationRequest) Reset() {
-	*x = ReservationRequest{}
+func (x *CapacityActionRequest) Reset() {
+	*x = CapacityActionRequest{}
 	mi := &file_proto_reservation_reservation_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ReservationRequest) String() string {
+func (x *CapacityActionRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ReservationRequest) ProtoMessage() {}
+func (*CapacityActionRequest) ProtoMessage() {}
 
-func (x *ReservationRequest) ProtoReflect() protoreflect.Message {
+func (x *CapacityActionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_reservation_reservation_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -165,12 +173,12 @@ func (x *ReservationRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ReservationRequest.ProtoReflect.Descriptor instead.
-func (*ReservationRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CapacityActionRequest.ProtoReflect.Descriptor instead.
+func (*CapacityActionRequest) Descriptor() ([]byte, []int) {
 	return file_proto_reservation_reservation_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ReservationRequest) GetId() string {
+func (x *CapacityActionRequest) GetId() string {
 	if x != nil {
 		return x.Id
 	}
@@ -217,21 +225,23 @@ var File_proto_reservation_reservation_proto protoreflect.FileDescriptor
 
 const file_proto_reservation_reservation_proto_rawDesc = "" +
 	"\n" +
-	"#proto/reservation/reservation.proto\x12\vreservation\"X\n" +
-	"\fCapacityInfo\x12\x16\n" +
-	"\x06weight\x18\x01 \x01(\x05R\x06weight\x120\n" +
-	"\x14number_of_containers\x18\x02 \x01(\x05R\x12numberOfContainers\"^\n" +
+	"#proto/reservation/reservation.proto\x12\vreservation\"\x89\x01\n" +
+	"\x16ReserveCapacityRequest\x12%\n" +
+	"\x0econsignment_id\x18\x01 \x01(\tR\rconsignmentId\x12\x16\n" +
+	"\x06weight\x18\x02 \x01(\x05R\x06weight\x120\n" +
+	"\x14number_of_containers\x18\x03 \x01(\x05R\x12numberOfContainers\"^\n" +
 	"\x13ReservationResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\breserved\x18\x02 \x01(\bR\breserved\x12\x1b\n" +
-	"\tvessel_id\x18\x03 \x01(\tR\bvesselId\"$\n" +
-	"\x12ReservationRequest\x12\x0e\n" +
+	"\tvessel_id\x18\x03 \x01(\tR\bvesselId\"'\n" +
+	"\x15CapacityActionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\a\n" +
-	"\x05Empty2\xf4\x01\n" +
-	"\x12ReservationService\x12N\n" +
-	"\x0fReserveCapacity\x12\x19.reservation.CapacityInfo\x1a .reservation.ReservationResponse\x12F\n" +
-	"\x0fReleaseCapacity\x12\x1f.reservation.ReservationRequest\x1a\x12.reservation.Empty\x12F\n" +
-	"\x0fConfirmCapacity\x12\x1f.reservation.ReservationRequest\x1a\x12.reservation.EmptyB5Z3github.com/murraystewart96/shippy/proto/reservationb\x06proto3"
+	"\x05Empty2\xd2\x02\n" +
+	"\x12ReservationService\x12X\n" +
+	"\x0fReserveCapacity\x12#.reservation.ReserveCapacityRequest\x1a .reservation.ReservationResponse\x12I\n" +
+	"\x0fReleaseCapacity\x12\".reservation.CapacityActionRequest\x1a\x12.reservation.Empty\x12I\n" +
+	"\x0fConfirmCapacity\x12\".reservation.CapacityActionRequest\x1a\x12.reservation.Empty\x12L\n" +
+	"\x12RefreshReservation\x12\".reservation.CapacityActionRequest\x1a\x12.reservation.EmptyB5Z3github.com/murraystewart96/shippy/proto/reservationb\x06proto3"
 
 var (
 	file_proto_reservation_reservation_proto_rawDescOnce sync.Once
@@ -247,20 +257,22 @@ func file_proto_reservation_reservation_proto_rawDescGZIP() []byte {
 
 var file_proto_reservation_reservation_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_proto_reservation_reservation_proto_goTypes = []any{
-	(*CapacityInfo)(nil),        // 0: reservation.CapacityInfo
-	(*ReservationResponse)(nil), // 1: reservation.ReservationResponse
-	(*ReservationRequest)(nil),  // 2: reservation.ReservationRequest
-	(*Empty)(nil),               // 3: reservation.Empty
+	(*ReserveCapacityRequest)(nil), // 0: reservation.ReserveCapacityRequest
+	(*ReservationResponse)(nil),    // 1: reservation.ReservationResponse
+	(*CapacityActionRequest)(nil),  // 2: reservation.CapacityActionRequest
+	(*Empty)(nil),                  // 3: reservation.Empty
 }
 var file_proto_reservation_reservation_proto_depIdxs = []int32{
-	0, // 0: reservation.ReservationService.ReserveCapacity:input_type -> reservation.CapacityInfo
-	2, // 1: reservation.ReservationService.ReleaseCapacity:input_type -> reservation.ReservationRequest
-	2, // 2: reservation.ReservationService.ConfirmCapacity:input_type -> reservation.ReservationRequest
-	1, // 3: reservation.ReservationService.ReserveCapacity:output_type -> reservation.ReservationResponse
-	3, // 4: reservation.ReservationService.ReleaseCapacity:output_type -> reservation.Empty
-	3, // 5: reservation.ReservationService.ConfirmCapacity:output_type -> reservation.Empty
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	0, // 0: reservation.ReservationService.ReserveCapacity:input_type -> reservation.ReserveCapacityRequest
+	2, // 1: reservation.ReservationService.ReleaseCapacity:input_type -> reservation.CapacityActionRequest
+	2, // 2: reservation.ReservationService.ConfirmCapacity:input_type -> reservation.CapacityActionRequest
+	2, // 3: reservation.ReservationService.RefreshReservation:input_type -> reservation.CapacityActionRequest
+	1, // 4: reservation.ReservationService.ReserveCapacity:output_type -> reservation.ReservationResponse
+	3, // 5: reservation.ReservationService.ReleaseCapacity:output_type -> reservation.Empty
+	3, // 6: reservation.ReservationService.ConfirmCapacity:output_type -> reservation.Empty
+	3, // 7: reservation.ReservationService.RefreshReservation:output_type -> reservation.Empty
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name

@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY cmd ./cmd
 COPY proto ./proto
+COPY pkg ./pkg
 COPY go.work go.work
 COPY go.work.sum go.work.sum
 

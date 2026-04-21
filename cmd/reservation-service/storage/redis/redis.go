@@ -24,6 +24,7 @@ type Cache struct {
 	reservationDataTTL time.Duration
 }
 
+// TODO - review ttl settings
 func NewCache(cfg *config.Redis) *Cache {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
@@ -153,6 +154,15 @@ func (c *Cache) GetExpired(ctx context.Context) ([]*storage.ReservationInfo, err
 	}
 
 	return expired, nil
+}
+
+func (c *Cache) Refresh(ctx context.Context, id string) (bool, error) {
+	key := fmt.Sprintf(reservationKeyNameSpaceFmt, id)
+	refreshed, err := c.client.Expire(ctx, key, c.reservationTTL).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to refresh reservation TTL: %w", err)
+	}
+	return refreshed, nil
 }
 
 func (c *Cache) DeleteData(ctx context.Context, id string) (bool, error) {

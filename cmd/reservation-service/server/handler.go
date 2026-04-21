@@ -30,7 +30,7 @@ func NewGRPCHandler(vesselCli vesselpb.VesselServiceClient, cache storage.Reserv
 	}
 }
 
-func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo) (*pb.ReservationResponse, error) {
+func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.ReserveCapacityRequest) (*pb.ReservationResponse, error) {
 	reservationID := uuid.New()
 	log.Info().
 		Str("reservation_id", reservationID.String()).
@@ -55,9 +55,15 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo)
 		return nil, fmt.Errorf("failed to convert vessel ID %s to uuid: %w", res.Vessel.Id, err)
 	}
 
-	// Cache reservation ID and info
+	consignmentID, err := uuid.Parse(req.ConsignmentId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert consignment ID %s to uuid: %w", req.ConsignmentId, err)
+	}
+
+	// Cache reservation info
 	err = h.cache.Store(ctx, reservationID.String(), storage.ReservationInfo{
 		Id:                 reservationID,
+		ConsignmentID:      consignmentID,
 		VesselID:           vesselID,
 		NumberOfContainers: int(req.NumberOfContainers),
 		Weight:             int(req.Weight),
@@ -96,7 +102,7 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.CapacityInfo)
 	}, nil
 }
 
-func (h *GRPCHandler) ReleaseCapacity(ctx context.Context, req *pb.ReservationRequest) (*pb.Empty, error) {
+func (h *GRPCHandler) ReleaseCapacity(ctx context.Context, req *pb.CapacityActionRequest) (*pb.Empty, error) {
 	log.Info().Str("reservation_id", req.Id).Msg("ReleaseCapacity: received")
 
 	reservation, err := h.cache.GetData(ctx, req.Id)
@@ -135,7 +141,24 @@ func (h *GRPCHandler) ReleaseCapacity(ctx context.Context, req *pb.ReservationRe
 	return nil, nil
 }
 
-func (h *GRPCHandler) ConfirmCapacity(ctx context.Context, req *pb.ReservationRequest) (*pb.Empty, error) {
+func (h *GRPCHandler) RefreshReservation(ctx context.Context, req *pb.CapacityActionRequest) (*pb.Empty, error) {
+	log.Info().Str("reservation_id", req.Id).Msg("RefreshReservation: received")
+
+	refreshed, err := h.cache.Refresh(ctx, req.Id)
+	if err != nil {
+		log.Error().Str("reservation_id", req.Id).Err(err).Msg("RefreshReservation: cache refresh failed")
+		return nil, status.Error(codes.Internal, "failed to refresh reservation")
+	}
+	if !refreshed {
+		log.Warn().Str("reservation_id", req.Id).Msg("RefreshReservation: reservation expired")
+		return nil, status.Error(codes.NotFound, "reservation expired")
+	}
+
+	log.Info().Str("reservation_id", req.Id).Msg("RefreshReservation: TTL refreshed")
+	return &pb.Empty{}, nil
+}
+
+func (h *GRPCHandler) ConfirmCapacity(ctx context.Context, req *pb.CapacityActionRequest) (*pb.Empty, error) {
 	log.Info().Str("reservation_id", req.Id).Msg("ConfirmCapacity: received")
 
 	reservation, err := h.cache.GetData(ctx, req.Id)

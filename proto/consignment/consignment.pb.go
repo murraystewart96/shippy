@@ -21,6 +21,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ConsignmentStatus int32
+
+const (
+	ConsignmentStatus_PENDING   ConsignmentStatus = 0
+	ConsignmentStatus_CONFIRMED ConsignmentStatus = 1
+	ConsignmentStatus_CANCELLED ConsignmentStatus = 2
+)
+
+// Enum value maps for ConsignmentStatus.
+var (
+	ConsignmentStatus_name = map[int32]string{
+		0: "PENDING",
+		1: "CONFIRMED",
+		2: "CANCELLED",
+	}
+	ConsignmentStatus_value = map[string]int32{
+		"PENDING":   0,
+		"CONFIRMED": 1,
+		"CANCELLED": 2,
+	}
+)
+
+func (x ConsignmentStatus) Enum() *ConsignmentStatus {
+	p := new(ConsignmentStatus)
+	*p = x
+	return p
+}
+
+func (x ConsignmentStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ConsignmentStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_consignment_consignment_proto_enumTypes[0].Descriptor()
+}
+
+func (ConsignmentStatus) Type() protoreflect.EnumType {
+	return &file_proto_consignment_consignment_proto_enumTypes[0]
+}
+
+func (x ConsignmentStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ConsignmentStatus.Descriptor instead.
+func (ConsignmentStatus) EnumDescriptor() ([]byte, []int) {
+	return file_proto_consignment_consignment_proto_rawDescGZIP(), []int{0}
+}
+
 type Consignment struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -28,6 +77,7 @@ type Consignment struct {
 	Weight        int32                  `protobuf:"varint,3,opt,name=weight,proto3" json:"weight,omitempty"`
 	Containers    []*Container           `protobuf:"bytes,4,rep,name=containers,proto3" json:"containers,omitempty"`
 	VesselId      string                 `protobuf:"bytes,5,opt,name=vessel_id,json=vesselId,proto3" json:"vessel_id,omitempty"`
+	Status        ConsignmentStatus      `protobuf:"varint,6,opt,name=status,proto3,enum=consignment.ConsignmentStatus" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -95,6 +145,13 @@ func (x *Consignment) GetVesselId() string {
 		return x.VesselId
 	}
 	return ""
+}
+
+func (x *Consignment) GetStatus() ConsignmentStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ConsignmentStatus_PENDING
 }
 
 type Container struct {
@@ -261,11 +318,99 @@ func (*GetRequest) Descriptor() ([]byte, []int) {
 	return file_proto_consignment_consignment_proto_rawDescGZIP(), []int{3}
 }
 
+type ConfirmRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfirmRequest) Reset() {
+	*x = ConfirmRequest{}
+	mi := &file_proto_consignment_consignment_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmRequest) ProtoMessage() {}
+
+func (x *ConfirmRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_consignment_consignment_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmRequest.ProtoReflect.Descriptor instead.
+func (*ConfirmRequest) Descriptor() ([]byte, []int) {
+	return file_proto_consignment_consignment_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ConfirmRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type ConfirmResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Confirmed     bool                   `protobuf:"varint,1,opt,name=confirmed,proto3" json:"confirmed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfirmResponse) Reset() {
+	*x = ConfirmResponse{}
+	mi := &file_proto_consignment_consignment_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmResponse) ProtoMessage() {}
+
+func (x *ConfirmResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_consignment_consignment_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmResponse.ProtoReflect.Descriptor instead.
+func (*ConfirmResponse) Descriptor() ([]byte, []int) {
+	return file_proto_consignment_consignment_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ConfirmResponse) GetConfirmed() bool {
+	if x != nil {
+		return x.Confirmed
+	}
+	return false
+}
+
 var File_proto_consignment_consignment_proto protoreflect.FileDescriptor
 
 const file_proto_consignment_consignment_proto_rawDesc = "" +
 	"\n" +
-	"#proto/consignment/consignment.proto\x12\vconsignment\"\xac\x01\n" +
+	"#proto/consignment/consignment.proto\x12\vconsignment\"\xe4\x01\n" +
 	"\vConsignment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x16\n" +
@@ -273,7 +418,8 @@ const file_proto_consignment_consignment_proto_rawDesc = "" +
 	"\n" +
 	"containers\x18\x04 \x03(\v2\x16.consignment.ContainerR\n" +
 	"containers\x12\x1b\n" +
-	"\tvessel_id\x18\x05 \x01(\tR\bvesselId\"m\n" +
+	"\tvessel_id\x18\x05 \x01(\tR\bvesselId\x126\n" +
+	"\x06status\x18\x06 \x01(\x0e2\x1e.consignment.ConsignmentStatusR\x06status\"m\n" +
 	"\tContainer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vcustomer_id\x18\x02 \x01(\tR\n" +
@@ -285,10 +431,19 @@ const file_proto_consignment_consignment_proto_rawDesc = "" +
 	"\vconsignment\x18\x02 \x01(\v2\x18.consignment.ConsignmentR\vconsignment\x12<\n" +
 	"\fconsignments\x18\x03 \x03(\v2\x18.consignment.ConsignmentR\fconsignments\"\f\n" +
 	"\n" +
-	"GetRequest2\xa1\x01\n" +
-	"\x12ConsignmentService\x12F\n" +
-	"\x11CreateConsignment\x12\x18.consignment.Consignment\x1a\x15.consignment.Response\"\x00\x12C\n" +
-	"\x0fGetConsignments\x12\x17.consignment.GetRequest\x1a\x15.consignment.Response\"\x00BPZNgithub.com/murraystewart96/shippy/shippy-consignment-service/proto/consignmentb\x06proto3"
+	"GetRequest\" \n" +
+	"\x0eConfirmRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"/\n" +
+	"\x0fConfirmResponse\x12\x1c\n" +
+	"\tconfirmed\x18\x01 \x01(\bR\tconfirmed*>\n" +
+	"\x11ConsignmentStatus\x12\v\n" +
+	"\aPENDING\x10\x00\x12\r\n" +
+	"\tCONFIRMED\x10\x01\x12\r\n" +
+	"\tCANCELLED\x10\x022\xee\x01\n" +
+	"\x12ConsignmentService\x12D\n" +
+	"\x11CreateConsignment\x12\x18.consignment.Consignment\x1a\x15.consignment.Response\x12O\n" +
+	"\x12ConfirmConsignment\x12\x1b.consignment.ConfirmRequest\x1a\x1c.consignment.ConfirmResponse\x12A\n" +
+	"\x0fGetConsignments\x12\x17.consignment.GetRequest\x1a\x15.consignment.ResponseB5Z3github.com/murraystewart96/shippy/proto/consignmentb\x06proto3"
 
 var (
 	file_proto_consignment_consignment_proto_rawDescOnce sync.Once
@@ -302,26 +457,33 @@ func file_proto_consignment_consignment_proto_rawDescGZIP() []byte {
 	return file_proto_consignment_consignment_proto_rawDescData
 }
 
-var file_proto_consignment_consignment_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_proto_consignment_consignment_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_proto_consignment_consignment_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_proto_consignment_consignment_proto_goTypes = []any{
-	(*Consignment)(nil), // 0: consignment.Consignment
-	(*Container)(nil),   // 1: consignment.Container
-	(*Response)(nil),    // 2: consignment.Response
-	(*GetRequest)(nil),  // 3: consignment.GetRequest
+	(ConsignmentStatus)(0),  // 0: consignment.ConsignmentStatus
+	(*Consignment)(nil),     // 1: consignment.Consignment
+	(*Container)(nil),       // 2: consignment.Container
+	(*Response)(nil),        // 3: consignment.Response
+	(*GetRequest)(nil),      // 4: consignment.GetRequest
+	(*ConfirmRequest)(nil),  // 5: consignment.ConfirmRequest
+	(*ConfirmResponse)(nil), // 6: consignment.ConfirmResponse
 }
 var file_proto_consignment_consignment_proto_depIdxs = []int32{
-	1, // 0: consignment.Consignment.containers:type_name -> consignment.Container
-	0, // 1: consignment.Response.consignment:type_name -> consignment.Consignment
-	0, // 2: consignment.Response.consignments:type_name -> consignment.Consignment
-	0, // 3: consignment.ConsignmentService.CreateConsignment:input_type -> consignment.Consignment
-	3, // 4: consignment.ConsignmentService.GetConsignments:input_type -> consignment.GetRequest
-	2, // 5: consignment.ConsignmentService.CreateConsignment:output_type -> consignment.Response
-	2, // 6: consignment.ConsignmentService.GetConsignments:output_type -> consignment.Response
-	5, // [5:7] is the sub-list for method output_type
-	3, // [3:5] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	2, // 0: consignment.Consignment.containers:type_name -> consignment.Container
+	0, // 1: consignment.Consignment.status:type_name -> consignment.ConsignmentStatus
+	1, // 2: consignment.Response.consignment:type_name -> consignment.Consignment
+	1, // 3: consignment.Response.consignments:type_name -> consignment.Consignment
+	1, // 4: consignment.ConsignmentService.CreateConsignment:input_type -> consignment.Consignment
+	5, // 5: consignment.ConsignmentService.ConfirmConsignment:input_type -> consignment.ConfirmRequest
+	4, // 6: consignment.ConsignmentService.GetConsignments:input_type -> consignment.GetRequest
+	3, // 7: consignment.ConsignmentService.CreateConsignment:output_type -> consignment.Response
+	6, // 8: consignment.ConsignmentService.ConfirmConsignment:output_type -> consignment.ConfirmResponse
+	3, // 9: consignment.ConsignmentService.GetConsignments:output_type -> consignment.Response
+	7, // [7:10] is the sub-list for method output_type
+	4, // [4:7] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_proto_consignment_consignment_proto_init() }
@@ -334,13 +496,14 @@ func file_proto_consignment_consignment_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_consignment_consignment_proto_rawDesc), len(file_proto_consignment_consignment_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   4,
+			NumEnums:      1,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_proto_consignment_consignment_proto_goTypes,
 		DependencyIndexes: file_proto_consignment_consignment_proto_depIdxs,
+		EnumInfos:         file_proto_consignment_consignment_proto_enumTypes,
 		MessageInfos:      file_proto_consignment_consignment_proto_msgTypes,
 	}.Build()
 	File_proto_consignment_consignment_proto = out.File

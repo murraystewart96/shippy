@@ -13,6 +13,7 @@ type ReservationCache interface {
 	GetExpired(ctx context.Context) ([]*ReservationInfo, error)
 	DeleteData(ctx context.Context, id string) (bool, error)
 	DeleteID(ctx context.Context, id string) (bool, error)
+	Refresh(ctx context.Context, id string) (bool, error)
 }
 
 type OutboxRepository interface {

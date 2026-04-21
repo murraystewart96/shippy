@@ -5,6 +5,7 @@ use (
 	./cmd/consignment-service
 	./cmd/email-service
 	./cmd/gateway
+	./cmd/payment-service
 	./cmd/reservation-service
 	./cmd/user-cli
 	./cmd/user-service

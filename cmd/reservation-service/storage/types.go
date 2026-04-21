@@ -7,10 +7,11 @@ import (
 )
 
 type ReservationInfo struct {
-	Id                 uuid.UUID
-	VesselID           uuid.UUID
-	NumberOfContainers int
-	Weight             int
+	Id                 uuid.UUID `json:"id"`
+	VesselID           uuid.UUID `json:"vessel_id"`
+	ConsignmentID      uuid.UUID `json:"consignment_id"`
+	NumberOfContainers int       `json:"number_of_containers"`
+	Weight             int       `json:"weight"`
 }
 
 type OutboxEvent struct {

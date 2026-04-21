@@ -3,6 +3,7 @@ module github.com/murraystewart96/shippy/vessel-service
 go 1.25.5
 
 require (
+	github.com/google/uuid v1.6.0
 	go.mongodb.org/mongo-driver v1.17.9
 	google.golang.org/grpc v1.80.0
 )
@@ -10,7 +11,6 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

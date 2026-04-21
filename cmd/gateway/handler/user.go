@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	userpb "github.com/murraystewart96/shippy/proto/user"
+	"github.com/rs/zerolog/log"
 )
 
 // POST /user issues a JWT token for a valid user
@@ -29,6 +30,7 @@ func (h *handler) CreateUser(ctx *gin.Context) {
 	})
 
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create user")
 		ctx.Status(http.StatusInternalServerError)
 		return
 	}

@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ConsignmentService_CreateConsignment_FullMethodName = "/consignment.ConsignmentService/CreateConsignment"
-	ConsignmentService_GetConsignments_FullMethodName   = "/consignment.ConsignmentService/GetConsignments"
+	ConsignmentService_CreateConsignment_FullMethodName  = "/consignment.ConsignmentService/CreateConsignment"
+	ConsignmentService_ConfirmConsignment_FullMethodName = "/consignment.ConsignmentService/ConfirmConsignment"
+	ConsignmentService_GetConsignments_FullMethodName    = "/consignment.ConsignmentService/GetConsignments"
 )
 
 // ConsignmentServiceClient is the client API for ConsignmentService service.
@@ -28,6 +29,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConsignmentServiceClient interface {
 	CreateConsignment(ctx context.Context, in *Consignment, opts ...grpc.CallOption) (*Response, error)
+	ConfirmConsignment(ctx context.Context, in *ConfirmRequest, opts ...grpc.CallOption) (*ConfirmResponse, error)
 	GetConsignments(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*Response, error)
 }
 
@@ -49,6 +51,16 @@ func (c *consignmentServiceClient) CreateConsignment(ctx context.Context, in *Co
 	return out, nil
 }
 
+func (c *consignmentServiceClient) ConfirmConsignment(ctx context.Context, in *ConfirmRequest, opts ...grpc.CallOption) (*ConfirmResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfirmResponse)
+	err := c.cc.Invoke(ctx, ConsignmentService_ConfirmConsignment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *consignmentServiceClient) GetConsignments(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*Response, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Response)
@@ -64,6 +76,7 @@ func (c *consignmentServiceClient) GetConsignments(ctx context.Context, in *GetR
 // for forward compatibility.
 type ConsignmentServiceServer interface {
 	CreateConsignment(context.Context, *Consignment) (*Response, error)
+	ConfirmConsignment(context.Context, *ConfirmRequest) (*ConfirmResponse, error)
 	GetConsignments(context.Context, *GetRequest) (*Response, error)
 	mustEmbedUnimplementedConsignmentServiceServer()
 }
@@ -77,6 +90,9 @@ type UnimplementedConsignmentServiceServer struct{}
 
 func (UnimplementedConsignmentServiceServer) CreateConsignment(context.Context, *Consignment) (*Response, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateConsignment not implemented")
+}
+func (UnimplementedConsignmentServiceServer) ConfirmConsignment(context.Context, *ConfirmRequest) (*ConfirmResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfirmConsignment not implemented")
 }
 func (UnimplementedConsignmentServiceServer) GetConsignments(context.Context, *GetRequest) (*Response, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetConsignments not implemented")
@@ -120,6 +136,24 @@ func _ConsignmentService_CreateConsignment_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConsignmentService_ConfirmConsignment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfirmRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConsignmentServiceServer).ConfirmConsignment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConsignmentService_ConfirmConsignment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConsignmentServiceServer).ConfirmConsignment(ctx, req.(*ConfirmRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ConsignmentService_GetConsignments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetRequest)
 	if err := dec(in); err != nil {
@@ -148,6 +182,10 @@ var ConsignmentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateConsignment",
 			Handler:    _ConsignmentService_CreateConsignment_Handler,
+		},
+		{
+			MethodName: "ConfirmConsignment",
+			Handler:    _ConsignmentService_ConfirmConsignment_Handler,
 		},
 		{
 			MethodName: "GetConsignments",

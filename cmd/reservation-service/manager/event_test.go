@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/murraystewart96/shippy/pkg/kafka"
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
 	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
@@ -34,7 +35,7 @@ func newTestEvent(action EventAction) *CapacityEvent {
 func newOutboxWithStore() *mockOutbox {
 	o := &mockOutbox{data: make(map[string]*storage.OutboxEvent)}
 	o.createEvent = func(ctx context.Context, event *storage.OutboxEvent) error {
-		o.data[event.Key] = event
+		o.data[event.Id.String()] = event
 		return nil
 	}
 	o.getPendingEvents = func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error) {
@@ -46,6 +47,10 @@ func newOutboxWithStore() *mockOutbox {
 		}
 		return pending, nil
 	}
+	o.markPublished = func(ctx context.Context, id uuid.UUID) error {
+
+		return nil
+	}
 	return o
 }
 
@@ -56,16 +61,16 @@ func mustMarshalEvent(t *testing.T, event *CapacityEvent) []byte {
 	return b
 }
 
-func newManager(t *testing.T, vesselCli *mockVesselClient, cache *mockCache, outbox *mockOutbox) *Manager {
+func newManager(t *testing.T, vesselCli *mockVesselClient, cache *mockCache, outbox *mockOutbox, producer kafka.IProducer) *Manager {
 	t.Helper()
-	mgr, err := New(vesselCli, nil, nil, []string{ReleaseCapacityTopic}, cache, outbox, config.Manager{})
+	mgr, err := New(vesselCli, producer, nil, []string{ReleaseCapacityTopic}, cache, outbox, config.Manager{})
 	require.NoError(t, err)
 	return mgr
 }
 
 // *** TESTS ***
 
-func TestHandleReleaseReservationEvent(t *testing.T) {
+func TestHandleReleaseReservationEvent_HappyPath(t *testing.T) {
 	event := newTestEvent(RELEASE)
 
 	cache := &mockCache{
@@ -84,9 +89,9 @@ func TestHandleReleaseReservationEvent(t *testing.T) {
 		return nil, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, nil)
+	mgr := newManager(t, vesselCli, cache, nil, nil)
 
-	err := mgr.handleReleaseReservationEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
+	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, cache.deleteDataCalls)
 	assert.Equal(t, 1, vesselCli.releaseCalls)
@@ -95,18 +100,16 @@ func TestHandleReleaseReservationEvent(t *testing.T) {
 func TestHandleCapacityEvent_DuplicateEvent(t *testing.T) {
 	event := newTestEvent(RELEASE)
 
-	cache := &mockCache{
-		deleteID: func(ctx context.Context, id string) (bool, error) {
-			return true, nil
-		},
-	}
+	cache := &mockCache{}
+
+	// A duplicate event would return false because cache entry has already been deleted
 	cache.deleteData = func(ctx context.Context, id string) (bool, error) {
 		cache.deleteDataCalls++
 		return false, nil
 	}
 
 	vesselCli := &mockVesselClient{}
-	mgr := newManager(t, vesselCli, cache, nil)
+	mgr := newManager(t, vesselCli, cache, nil, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.NoError(t, err)
@@ -138,7 +141,7 @@ func TestHandleCapacityEvent_RetryAfterClearingCache(t *testing.T) {
 		return nil, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, outbox)
+	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.Error(t, err)
@@ -180,7 +183,7 @@ func TestHandleCapacityEvent_RetryAfterNotClearingCache(t *testing.T) {
 		return nil, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, outbox)
+	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.Error(t, err)
@@ -225,7 +228,7 @@ func TestHandleCapacityEvent_IsIdempotent(t *testing.T) {
 		return nil, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, outbox)
+	mgr := newManager(t, vesselCli, cache, outbox, nil)
 	eventJSON := mustMarshalEvent(t, event)
 
 	var wg sync.WaitGroup
@@ -239,6 +242,8 @@ func TestHandleCapacityEvent_IsIdempotent(t *testing.T) {
 	}
 	wg.Wait()
 
+	// Duplicate events should only be processed once
+	// Here this means one release call to the vessel service
 	assert.Equal(t, 3, cache.deleteDataCalls)
 	assert.Equal(t, 1, vesselCli.releaseCalls)
 }
@@ -246,7 +251,7 @@ func TestHandleCapacityEvent_IsIdempotent(t *testing.T) {
 func TestHandleCapacityEvent_InvalidJSON(t *testing.T) {
 	vesselCli := &mockVesselClient{}
 	cache := &mockCache{}
-	mgr := newManager(t, vesselCli, cache, nil)
+	mgr := newManager(t, vesselCli, cache, nil, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte("key"), []byte("not valid json"))
 	assert.Error(t, err)
@@ -275,7 +280,7 @@ func TestHandleCapacityEvent_CacheClearedSkipsDelete(t *testing.T) {
 		return nil, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, nil)
+	mgr := newManager(t, vesselCli, cache, nil, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.NoError(t, err)
@@ -302,7 +307,7 @@ func TestHandleCapacityEvent_DeleteIDFailureIsNonFatal(t *testing.T) {
 		return nil, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, nil)
+	mgr := newManager(t, vesselCli, cache, nil, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.NoError(t, err)
@@ -328,7 +333,7 @@ func TestHandleCapacityEvent_ScheduleRetryFailsAfterDeleteError(t *testing.T) {
 		},
 	}
 
-	mgr := newManager(t, nil, cache, outbox)
+	mgr := newManager(t, nil, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.Error(t, err)
@@ -354,9 +359,9 @@ func TestHandleConfirmReservationEvent(t *testing.T) {
 		return &vesselpb.Empty{}, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, nil)
+	mgr := newManager(t, vesselCli, cache, nil, nil)
 
-	err := mgr.handleConfirmReservationEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
+	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, cache.deleteDataCalls)
 	assert.Equal(t, 1, vesselCli.confirmCalls)
@@ -384,7 +389,7 @@ func TestHandleCapacityEvent_ConfirmVesselFailureSchedulesRetry(t *testing.T) {
 		return nil, fmt.Errorf("confirm capacity failed")
 	}
 
-	mgr := newManager(t, vesselCli, cache, outbox)
+	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.Error(t, err)
@@ -402,4 +407,67 @@ func TestHandleCapacityEvent_ConfirmVesselFailureSchedulesRetry(t *testing.T) {
 	assert.Equal(t, CONFIRM, retryEvent.Action)
 	assert.Equal(t, 1, retryEvent.RetryCount)
 	assert.True(t, retryEvent.CacheCleared)
+}
+
+func TestHandleCapacityEvent_ExhaustRetries_NotifyConfirmConsignmentDLQ(t *testing.T) {
+	event := newTestEvent(CONFIRM)
+
+	cache := &mockCache{
+		deleteID: func(ctx context.Context, id string) (bool, error) {
+			return true, nil
+		},
+	}
+	cache.deleteData = func(ctx context.Context, id string) (bool, error) {
+		cache.deleteDataCalls++
+		return true, nil
+	}
+
+	outbox := newOutboxWithStore()
+
+	producer := &mockProducer{}
+
+	producer.produce = func(ctx context.Context, topic string, key, value []byte) error {
+		return nil
+	}
+
+	vesselCli := &mockVesselClient{}
+	vesselCli.confirmCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
+		vesselCli.confirmCalls++
+		return nil, fmt.Errorf("confirm capacity failed")
+	}
+
+	mgr := newManager(t, vesselCli, cache, outbox, producer)
+
+	eventJSON := mustMarshalEvent(t, event)
+
+	// Retry event over max retries
+	for i := 0; i <= maxRetries; i++ {
+		err := mgr.handleCapacityEvent(t.Context(), []byte(event.ConsignmentID), eventJSON)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "confirm capacity failed")
+
+		assert.Equal(t, 1, cache.deleteDataCalls)
+		assert.Equal(t, i+1, vesselCli.confirmCalls)
+
+		// Get retry event
+		events, err := outbox.GetPendingEvents(t.Context(), 10)
+		require.NoError(t, err)
+		require.Len(t, events, 1)
+
+		eventJSON = events[0].Payload
+	}
+
+	// Process pending capacity DLQ event
+	events, err := outbox.GetPendingEvents(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+
+	pendingDLQEvent := events[0]
+	assert.Equal(t, pendingDLQEvent.Topic, CapacityDLQTopic)
+
+	err = mgr.handleCapacityDLQEvent(t.Context(), []byte(pendingDLQEvent.Key), pendingDLQEvent.Payload)
+	require.NoError(t, err)
+
+	// Assert confirm consignment DLQ event was published
+	assert.Equal(t, 1, producer.produceCalls)
 }

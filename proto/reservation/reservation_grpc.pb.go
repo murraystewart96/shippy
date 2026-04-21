@@ -19,18 +19,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReservationService_ReserveCapacity_FullMethodName = "/reservation.ReservationService/ReserveCapacity"
-	ReservationService_ReleaseCapacity_FullMethodName = "/reservation.ReservationService/ReleaseCapacity"
-	ReservationService_ConfirmCapacity_FullMethodName = "/reservation.ReservationService/ConfirmCapacity"
+	ReservationService_ReserveCapacity_FullMethodName    = "/reservation.ReservationService/ReserveCapacity"
+	ReservationService_ReleaseCapacity_FullMethodName    = "/reservation.ReservationService/ReleaseCapacity"
+	ReservationService_ConfirmCapacity_FullMethodName    = "/reservation.ReservationService/ConfirmCapacity"
+	ReservationService_RefreshReservation_FullMethodName = "/reservation.ReservationService/RefreshReservation"
 )
 
 // ReservationServiceClient is the client API for ReservationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ReservationServiceClient interface {
-	ReserveCapacity(ctx context.Context, in *CapacityInfo, opts ...grpc.CallOption) (*ReservationResponse, error)
-	ReleaseCapacity(ctx context.Context, in *ReservationRequest, opts ...grpc.CallOption) (*Empty, error)
-	ConfirmCapacity(ctx context.Context, in *ReservationRequest, opts ...grpc.CallOption) (*Empty, error)
+	ReserveCapacity(ctx context.Context, in *ReserveCapacityRequest, opts ...grpc.CallOption) (*ReservationResponse, error)
+	ReleaseCapacity(ctx context.Context, in *CapacityActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	ConfirmCapacity(ctx context.Context, in *CapacityActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	RefreshReservation(ctx context.Context, in *CapacityActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type reservationServiceClient struct {
@@ -41,7 +43,7 @@ func NewReservationServiceClient(cc grpc.ClientConnInterface) ReservationService
 	return &reservationServiceClient{cc}
 }
 
-func (c *reservationServiceClient) ReserveCapacity(ctx context.Context, in *CapacityInfo, opts ...grpc.CallOption) (*ReservationResponse, error) {
+func (c *reservationServiceClient) ReserveCapacity(ctx context.Context, in *ReserveCapacityRequest, opts ...grpc.CallOption) (*ReservationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReservationResponse)
 	err := c.cc.Invoke(ctx, ReservationService_ReserveCapacity_FullMethodName, in, out, cOpts...)
@@ -51,7 +53,7 @@ func (c *reservationServiceClient) ReserveCapacity(ctx context.Context, in *Capa
 	return out, nil
 }
 
-func (c *reservationServiceClient) ReleaseCapacity(ctx context.Context, in *ReservationRequest, opts ...grpc.CallOption) (*Empty, error) {
+func (c *reservationServiceClient) ReleaseCapacity(ctx context.Context, in *CapacityActionRequest, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, ReservationService_ReleaseCapacity_FullMethodName, in, out, cOpts...)
@@ -61,10 +63,20 @@ func (c *reservationServiceClient) ReleaseCapacity(ctx context.Context, in *Rese
 	return out, nil
 }
 
-func (c *reservationServiceClient) ConfirmCapacity(ctx context.Context, in *ReservationRequest, opts ...grpc.CallOption) (*Empty, error) {
+func (c *reservationServiceClient) ConfirmCapacity(ctx context.Context, in *CapacityActionRequest, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, ReservationService_ConfirmCapacity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reservationServiceClient) RefreshReservation(ctx context.Context, in *CapacityActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ReservationService_RefreshReservation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +87,10 @@ func (c *reservationServiceClient) ConfirmCapacity(ctx context.Context, in *Rese
 // All implementations must embed UnimplementedReservationServiceServer
 // for forward compatibility.
 type ReservationServiceServer interface {
-	ReserveCapacity(context.Context, *CapacityInfo) (*ReservationResponse, error)
-	ReleaseCapacity(context.Context, *ReservationRequest) (*Empty, error)
-	ConfirmCapacity(context.Context, *ReservationRequest) (*Empty, error)
+	ReserveCapacity(context.Context, *ReserveCapacityRequest) (*ReservationResponse, error)
+	ReleaseCapacity(context.Context, *CapacityActionRequest) (*Empty, error)
+	ConfirmCapacity(context.Context, *CapacityActionRequest) (*Empty, error)
+	RefreshReservation(context.Context, *CapacityActionRequest) (*Empty, error)
 	mustEmbedUnimplementedReservationServiceServer()
 }
 
@@ -88,14 +101,17 @@ type ReservationServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedReservationServiceServer struct{}
 
-func (UnimplementedReservationServiceServer) ReserveCapacity(context.Context, *CapacityInfo) (*ReservationResponse, error) {
+func (UnimplementedReservationServiceServer) ReserveCapacity(context.Context, *ReserveCapacityRequest) (*ReservationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReserveCapacity not implemented")
 }
-func (UnimplementedReservationServiceServer) ReleaseCapacity(context.Context, *ReservationRequest) (*Empty, error) {
+func (UnimplementedReservationServiceServer) ReleaseCapacity(context.Context, *CapacityActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseCapacity not implemented")
 }
-func (UnimplementedReservationServiceServer) ConfirmCapacity(context.Context, *ReservationRequest) (*Empty, error) {
+func (UnimplementedReservationServiceServer) ConfirmCapacity(context.Context, *CapacityActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ConfirmCapacity not implemented")
+}
+func (UnimplementedReservationServiceServer) RefreshReservation(context.Context, *CapacityActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RefreshReservation not implemented")
 }
 func (UnimplementedReservationServiceServer) mustEmbedUnimplementedReservationServiceServer() {}
 func (UnimplementedReservationServiceServer) testEmbeddedByValue()                            {}
@@ -119,7 +135,7 @@ func RegisterReservationServiceServer(s grpc.ServiceRegistrar, srv ReservationSe
 }
 
 func _ReservationService_ReserveCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CapacityInfo)
+	in := new(ReserveCapacityRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -131,13 +147,13 @@ func _ReservationService_ReserveCapacity_Handler(srv interface{}, ctx context.Co
 		FullMethod: ReservationService_ReserveCapacity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ReservationServiceServer).ReserveCapacity(ctx, req.(*CapacityInfo))
+		return srv.(ReservationServiceServer).ReserveCapacity(ctx, req.(*ReserveCapacityRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ReservationService_ReleaseCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReservationRequest)
+	in := new(CapacityActionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -149,13 +165,13 @@ func _ReservationService_ReleaseCapacity_Handler(srv interface{}, ctx context.Co
 		FullMethod: ReservationService_ReleaseCapacity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ReservationServiceServer).ReleaseCapacity(ctx, req.(*ReservationRequest))
+		return srv.(ReservationServiceServer).ReleaseCapacity(ctx, req.(*CapacityActionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ReservationService_ConfirmCapacity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReservationRequest)
+	in := new(CapacityActionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -167,7 +183,25 @@ func _ReservationService_ConfirmCapacity_Handler(srv interface{}, ctx context.Co
 		FullMethod: ReservationService_ConfirmCapacity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ReservationServiceServer).ConfirmCapacity(ctx, req.(*ReservationRequest))
+		return srv.(ReservationServiceServer).ConfirmCapacity(ctx, req.(*CapacityActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReservationService_RefreshReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CapacityActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReservationServiceServer).RefreshReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReservationService_RefreshReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReservationServiceServer).RefreshReservation(ctx, req.(*CapacityActionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -190,6 +224,10 @@ var ReservationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConfirmCapacity",
 			Handler:    _ReservationService_ConfirmCapacity_Handler,
+		},
+		{
+			MethodName: "RefreshReservation",
+			Handler:    _ReservationService_RefreshReservation_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -7,10 +7,16 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"sync"
 	"syscall"
 
+	consignmentmanager "github.com/murraystewart96/shippy/consignment-service/manager"
+	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
+	"github.com/murraystewart96/shippy/pkg/kafka"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
-	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
+	paymentpb "github.com/murraystewart96/shippy/proto/payment"
+	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
@@ -27,14 +33,26 @@ func main() {
 		grpcAddr = ":50051"
 	}
 
-	userServiceAddr := os.Getenv("USER_SERVICE_ADDRESS")
-	if userServiceAddr == "" {
-		userServiceAddr = "localhost:50053"
+	reservationServiceAddr := os.Getenv("RESERVATION_SERVICE_ADDRESS")
+	if reservationServiceAddr == "" {
+		reservationServiceAddr = "localhost:50054"
 	}
 
-	vesselServiceAddr := os.Getenv("VESSEL_SERVICE_ADDRESS")
-	if vesselServiceAddr == "" {
-		vesselServiceAddr = "localhost:50052"
+	paymentServiceAddr := os.Getenv("PAYMENT_SERVICE_ADDRESS")
+	if paymentServiceAddr == "" {
+		paymentServiceAddr = "localhost:50055"
+	}
+
+	kafkaAddr := os.Getenv("KAFKA_ADDRESS")
+	if kafkaAddr == "" {
+		kafkaAddr = "localhost:9092"
+	}
+
+	outboxInterval := 30
+	if v := os.Getenv("OUTBOX_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			outboxInterval = n
+		}
 	}
 
 	host := os.Getenv("DB_HOST")
@@ -47,31 +65,79 @@ func main() {
 	}
 	uri := fmt.Sprintf("mongodb://%s:%s", host, port)
 
-	mongoCli, err := CreateMongoClient(context.Background(), uri, 0)
+	mongoCli, err := mongo.CreateClient(context.Background(), uri, 0)
 	if err != nil {
 		log.Panic(err)
 	}
 	defer mongoCli.Disconnect(context.Background())
 
 	consignmentCollection := mongoCli.Database("shippy").Collection("consignments")
-	repository := &MongoRespository{collection: consignmentCollection}
+	outboxCollection := mongoCli.Database("shippy").Collection("outbox")
 
-	userConn, err := grpc.NewClient(userServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatalf("failed to connect to user service: %v", err)
-	}
-	defer userConn.Close()
+	repository := mongo.New(consignmentCollection)
+	outbox := mongo.NewOutbox(outboxCollection)
 
-	vesselConn, err := grpc.NewClient(vesselServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	reservationConn, err := grpc.NewClient(reservationServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("failed to connect to vessel service: %v", err)
+		log.Fatalf("failed to connect to reservation service: %v", err)
 	}
-	defer vesselConn.Close()
+	defer reservationConn.Close()
+
+	paymentConn, err := grpc.NewClient(paymentServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to payment service: %v", err)
+	}
+	defer paymentConn.Close()
+
+	paymentCli := paymentpb.NewPaymentServiceClient(paymentConn)
+
+	producer, err := kafka.NewProducer(&kafka.ProducerConfig{
+		BootstrapServers: kafkaAddr,
+		Acks:             "all",
+	})
+	if err != nil {
+		log.Fatalf("failed to create kafka producer: %v", err)
+	}
+
+	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
+		BootstrapServers: kafkaAddr,
+		GroupID:          "consignment-service",
+		OffsetReset:      "earliest",
+	})
+	if err != nil {
+		log.Fatalf("failed to create kafka consumer: %v", err)
+	}
+
+	mgr, err := consignmentmanager.New(
+		producer,
+		consumer,
+		[]string{
+			consignmentmanager.ConsignmentPaymentAuthorisedTopic,
+			consignmentmanager.ConsignmentConfirmationFailedTopic,
+			consignmentmanager.ConsignmentConfirmedTopic,
+			consignmentmanager.ConsignmentCancelledTopic,
+		},
+		outbox,
+		paymentCli,
+		repository,
+		consignmentmanager.Config{OutboxInterval: outboxInterval},
+	)
+	if err != nil {
+		log.Fatalf("failed to create manager: %v", err)
+	}
 
 	handler := &handler{
-		repository: repository,
-		vesselCli:  vesselpb.NewVesselServiceClient(vesselConn),
+		repository:     repository,
+		reservationCli: reservepb.NewReservationServiceClient(reservationConn),
+		paymentCli:     paymentCli,
+		outbox:         outbox,
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errCh := mgr.Start(ctx, &wg)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -79,15 +145,19 @@ func main() {
 	}
 
 	srv := grpc.NewServer()
-
 	pb.RegisterConsignmentServiceServer(srv, handler)
 	reflection.Register(srv)
 
 	go func() {
 		quit := make(chan os.Signal, 1)
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		<-quit
-		log.Println("shutting down...")
+		select {
+		case <-quit:
+			log.Println("shutting down...")
+		case err := <-errCh:
+			log.Printf("manager error: %v", err)
+		}
+		cancel()
 		srv.GracefulStop()
 	}()
 
@@ -95,4 +165,6 @@ func main() {
 	if err := srv.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+
+	wg.Wait()
 }

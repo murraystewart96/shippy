@@ -1,0 +1,162 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/murraystewart96/shippy/consignment-service/manager"
+	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
+	"github.com/murraystewart96/shippy/pkg/kafka"
+	paymentpb "github.com/murraystewart96/shippy/proto/payment"
+	"github.com/stretchr/testify/require"
+	tcKafka "github.com/testcontainers/testcontainers-go/modules/kafka"
+	tcMongo "github.com/testcontainers/testcontainers-go/modules/mongodb"
+	mongoDriver "go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/grpc"
+)
+
+var s *suite
+
+type suite struct {
+	kafkaAddr   string
+	mongoCli    *mongoDriver.Client
+	producer    kafka.IProducer
+	paymentSvc  *mockPaymentService
+	paymentAddr string
+}
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	// --- Kafka ---
+	kafkaContainer, err := tcKafka.Run(ctx, "confluentinc/confluent-local:7.5.0")
+	if err != nil {
+		panic(err)
+	}
+	defer kafkaContainer.Terminate(ctx)
+
+	brokers, err := kafkaContainer.Brokers(ctx)
+	if err != nil {
+		panic(err)
+	}
+	kafkaAddr := brokers[0]
+
+	// --- MongoDB ---
+	mongoContainer, err := tcMongo.Run(ctx, "mongo:7")
+	if err != nil {
+		panic(err)
+	}
+	defer mongoContainer.Terminate(ctx)
+
+	mongoURI, err := mongoContainer.ConnectionString(ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	mongoCli, err := mongoDriver.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		panic(err)
+	}
+	defer mongoCli.Disconnect(ctx)
+
+	// --- Shared producer ---
+	producer, err := kafka.NewProducer(&kafka.ProducerConfig{
+		BootstrapServers: kafkaAddr,
+		Acks:             "all",
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer producer.Close()
+
+	// --- In-process mock payment gRPC server ---
+	paymentSvc := &mockPaymentService{}
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		panic(err)
+	}
+	paymentSrv := grpc.NewServer()
+	paymentpb.RegisterPaymentServiceServer(paymentSrv, paymentSvc)
+	go func() { _ = paymentSrv.Serve(lis) }()
+	defer paymentSrv.Stop()
+
+	// --- Ensure Kafka topics ---
+	if err := kafka.EnsureTopics(ctx, kafkaAddr, []kafka.TopicConfig{
+		{Name: manager.ConsignmentPaymentAuthorisedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConsignmentConfirmedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConsignmentCancelledTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConsignmentStatusFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConfirmCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReleaseCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
+	}); err != nil {
+		panic(err)
+	}
+
+	s = &suite{
+		kafkaAddr:   kafkaAddr,
+		mongoCli:    mongoCli,
+		producer:    producer,
+		paymentSvc:  paymentSvc,
+		paymentAddr: lis.Addr().String(),
+	}
+
+	os.Exit(m.Run())
+}
+
+// cleanState drops the test collections between tests to prevent state leaking.
+func (s *suite) cleanState(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		db := s.mongoCli.Database("shippy_test")
+		_ = db.Collection("consignments").Drop(context.Background())
+		_ = db.Collection("outbox").Drop(context.Background())
+	})
+}
+
+// newManager creates a real manager wired to the test infrastructure.
+func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
+	t.Helper()
+
+	paymentConn, err := grpc.NewClient(s.paymentAddr, grpc.WithInsecure())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = paymentConn.Close() })
+
+	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
+		BootstrapServers: s.kafkaAddr,
+		GroupID:          fmt.Sprintf("test-%d", time.Now().UnixNano()),
+		OffsetReset:      "earliest",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = consumer.Close() })
+
+	outbox := mongo.NewOutbox(s.mongoCli.Database("shippy_test").Collection("outbox"))
+	repository := mongo.New(s.mongoCli.Database("shippy_test").Collection("consignments"))
+
+	mgr, err := manager.New(
+		s.producer,
+		consumer,
+		topics,
+		outbox,
+		paymentpb.NewPaymentServiceClient(paymentConn),
+		repository,
+		manager.Config{OutboxInterval: 1},
+	)
+	require.NoError(t, err)
+
+	return mgr
+}
+
+// publish sends a message directly to a Kafka topic.
+func (s *suite) publish(t *testing.T, topic, key string, v any) {
+	t.Helper()
+	payload, err := json.Marshal(v)
+	require.NoError(t, err)
+	require.NoError(t, s.producer.Produce(context.Background(), topic, []byte(key), payload))
+}

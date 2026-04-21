@@ -4,9 +4,10 @@ package reservation;
 
 option go_package = "github.com/murraystewart96/shippy/proto/reservation";
 
-message CapacityInfo {
-    int32 weight = 1;
-    int32 number_of_containers = 2;
+message ReserveCapacityRequest {
+    string consignment_id = 1;
+    int32 weight = 2;
+    int32 number_of_containers = 3;
 }
 
 message ReservationResponse {
@@ -15,14 +16,15 @@ message ReservationResponse {
     string vessel_id = 3;
 }
 
-message ReservationRequest {
+message CapacityActionRequest {
     string id = 1;
 }
 
 message Empty {}
 
 service ReservationService {
-    rpc ReserveCapacity(CapacityInfo) returns (ReservationResponse);
-    rpc ReleaseCapacity(ReservationRequest) returns (Empty);
-    rpc ConfirmCapacity(ReservationRequest) returns (Empty);
+    rpc ReserveCapacity(ReserveCapacityRequest) returns (ReservationResponse);
+    rpc ReleaseCapacity(CapacityActionRequest) returns (Empty);
+    rpc ConfirmCapacity(CapacityActionRequest) returns (Empty);
+    rpc RefreshReservation(CapacityActionRequest) returns (Empty);
 }

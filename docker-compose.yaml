@@ -2,19 +2,43 @@
 services:
 
   # Services
+  gateway:
+    build:
+      context: .
+      dockerfile: cmd/gateway/Dockerfile
+    ports:
+      - 8080:8080
+    environment:
+      SERVER_ADDRESS: ":8080"
+      USER_SERVICE_ADDRESS: "user:50051"
+      CONSIGNMENT_SERVICE_ADDRESS: "consignment:50051"
+      JWT_SECRET: "secret"
+    depends_on:
+      - user
+      - consignment
+
   consignment:
     restart: always
     build:
       context: .
       dockerfile: cmd/consignment-service/Dockerfile
     depends_on:
-      - datastore
-      - vessel
-    ports:
-      - 50051:50051
+      datastore:
+        condition: service_healthy
+      reservation:
+        condition: service_started
+      payment:
+        condition: service_started
+      kafka:
+        condition: service_started
     environment:
-      MICRO_SERVER_ADDRESS: ":50051"
-      DB_HOST: "mongodb://datastore:27017"
+      GRPC_ADDRESS: ":50051"
+      DB_HOST: "datastore"
+      DB_PORT: "27017"
+      RESERVATION_SERVICE_ADDRESS: "reservation:50051"
+      PAYMENT_SERVICE_ADDRESS: "payment:50051"
+      KAFKA_ADDRESS: "kafka:9092"
+      OUTBOX_INTERVAL: "10"
 
   vessel:
     restart: always
@@ -30,6 +54,13 @@ services:
     depends_on:
       - datastore
 
+  payment:
+    build:
+      context: .
+      dockerfile: cmd/payment-service/Dockerfile
+    environment:
+      GRPC_ADDRESS: ":50051"
+
   user:
     build:
       context: .
@@ -37,13 +68,12 @@ services:
     ports:
       - 50053:50051
     environment:
-      MICRO_SERVER_ADDRESS: ":50051"
-      MICRO_BROKER: nats
-      MICRO_BROKER_ADDRESS: nats:4222
+      GRPC_ADDRESS: ":50051"
       DB_PASSWORD: "password"
       DB_USER: "admin"
       DB_NAME: "shippy"
       DB_HOST: "database"
+      JWT_SECRET: "secret"
     depends_on:
       - database
       - nats
@@ -155,6 +185,7 @@ services:
       POSTGRES_PASSWORD: "password"
       POSTGRES_USER: "admin"
       POSTGRES_DB: "shippy"
+      POSTGRES_HOST_AUTH_METHOD: "md5"
     ports:
       - 5432:5432
     volumes:
