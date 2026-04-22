@@ -208,6 +208,13 @@ func (m *Manager) handleConsignmentCancelledEvent(ctx context.Context, key, valu
 	return m.handleConsignmentStatusEvent(ctx, key, value)
 }
 
+func (m *Manager) handleConsignmentStatusFailedEvent(ctx context.Context, key, value []byte) error {
+	log.Error().
+		Str("consignment_id", string(key)).
+		Msg("ALERT: consignment status update exhausted retries — manual intervention required")
+	return nil
+}
+
 func (m *Manager) handleConsignmentStatusEvent(ctx context.Context, key, value []byte) error {
 	var event ConsignmentEvent
 	if err := json.Unmarshal(value, &event); err != nil {
@@ -226,17 +233,19 @@ func (m *Manager) handleConsignmentStatusEvent(ctx context.Context, key, value [
 		return fmt.Errorf("unknown event action: %d", event.Action)
 	}
 
-	if err := m.repository.UpdateStatus(ctx, event.ConsignmentID, targetStatus); err != nil {
+	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, targetStatus); updateErr != nil {
 		log.Error().
 			Str("consignment_id", event.ConsignmentID).
 			Str("action", event.Action.String()).
-			Err(err).
+			Err(updateErr).
 			Msg("failed to update consignment status — scheduling retry")
 
 		event.RetryCount++
 		if err := m.scheduleConsignmentStatusEvent(ctx, &event); err != nil {
 			return fmt.Errorf("failed to schedule retry: %w", err)
 		}
+		return fmt.Errorf("failed to update consignment status %s: %w", event.ConsignmentID, updateErr)
+
 	}
 
 	return nil

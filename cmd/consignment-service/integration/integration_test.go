@@ -130,7 +130,7 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	// Consume release event triggered by consignment.confirm.dlq event
+	// Consume release event triggered by "consignment.confirmation.failed"
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

@@ -29,7 +29,26 @@ func (a EventAction) String() string {
 	}
 }
 
-type failedConfirmationEvent struct {
+// cancelConsignmentEvent matches the ConsignmentEvent shape expected by the consignment service.
+type cancelConsignmentEvent struct {
+	Action        int    `json:"action"` // CANCEL = 1
+	ConsignmentID string `json:"consignment_id"`
+	RetryCount    int    `json:"retry_count"`
+}
+
+func (m *Manager) scheduleConsignmentCancel(ctx context.Context, consignmentID string) error {
+	payload, err := json.Marshal(cancelConsignmentEvent{Action: 1, ConsignmentID: consignmentID})
+	if err != nil {
+		return fmt.Errorf("failed to marshal cancel event: %w", err)
+	}
+	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
+		Topic:   ConsignmentCancelledTopic,
+		Key:     consignmentID,
+		Payload: payload,
+	})
+}
+
+type FailedConfirmationEvent struct {
 	CacheCleared    bool   `json:"cache_cleared"`
 	PaymentCaptured bool   `json:"payment_captured"`
 	PaymentID       string `json:"payment_id"`
@@ -85,7 +104,7 @@ func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) er
 				Int("retry_count", event.RetryCount).
 				Msg("failed to delete reservation data — scheduling retry")
 
-			if err := m.scheduleEvent(ctx, &event); err != nil {
+			if err := m.scheduleCapacityEvent(ctx, &event); err != nil {
 				return fmt.Errorf("failed to schedule event retry: %w", err)
 			}
 			return fmt.Errorf("failed to delete reservation %s: %w", reservationID, deleteErr)
@@ -130,7 +149,7 @@ func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) er
 			Int("retry_count", event.RetryCount).
 			Msg("vessel call failed — scheduling retry")
 
-		if err := m.scheduleEvent(ctx, &event); err != nil {
+		if err := m.scheduleCapacityEvent(ctx, &event); err != nil {
 			return fmt.Errorf("failed to schedule event retry: %w", err)
 		}
 		return fmt.Errorf("vessel %s failed: %w", event.Action.String(), vesselErr)
@@ -199,8 +218,8 @@ func (m *Manager) handleCapacityDLQEvent(ctx context.Context, key, value []byte)
 }
 
 func notifyConfirmConsignmentDLQ(ctx context.Context, producer kafka.IProducer, event *CapacityEvent) error {
-	payload := failedConfirmationEvent{
-		PaymentCaptured: true,
+	payload := FailedConfirmationEvent{
+		PaymentCaptured: true, // payment must have been captured before confirm event
 		PaymentID:       event.PaymentID,
 		ConsignmentID:   event.ConsignmentID,
 		ReservationID:   event.ReservationInfo.Id.String(),
@@ -213,14 +232,14 @@ func notifyConfirmConsignmentDLQ(ctx context.Context, producer kafka.IProducer, 
 	if err != nil {
 		return fmt.Errorf("failed to marshal failed confirmation event: %w", err)
 	}
-	if err := producer.Produce(ctx, ConfirmConsignmentDLQTopic, []byte(event.ConsignmentID), payloadJSON); err != nil {
+	if err := producer.Produce(ctx, ConsignmentConfirmationFailedTopic, []byte(event.ConsignmentID), payloadJSON); err != nil {
 		// TODO - alert
 		return fmt.Errorf("failed to publish to consignment DLQ: %w", err)
 	}
 	return nil
 }
 
-func (m *Manager) scheduleEvent(ctx context.Context, event *CapacityEvent) error {
+func (m *Manager) scheduleCapacityEvent(ctx context.Context, event *CapacityEvent) error {
 	event.RetryCount++
 
 	eventJSON, err := json.Marshal(event)

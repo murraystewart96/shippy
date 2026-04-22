@@ -67,10 +67,11 @@ func New(
 	}
 
 	eventHandlers := kafka.EventHandlers{
-		ConsignmentPaymentAuthorisedTopic: manager.handlePaymentAuthorisedEvent,
+		ConsignmentPaymentAuthorisedTopic:  manager.handlePaymentAuthorisedEvent,
 		ConsignmentConfirmationFailedTopic: manager.handleFailedConfirmationEvent,
-		ConsignmentCancelledTopic:         manager.handleConsignmentCancelledEvent,
-		ConsignmentConfirmedTopic:         manager.handleConsignmentConfirmedEvent,
+		ConsignmentCancelledTopic:          manager.handleConsignmentCancelledEvent,
+		ConsignmentConfirmedTopic:          manager.handleConsignmentConfirmedEvent,
+		ConsignmentStatusFailedTopic:       manager.handleConsignmentStatusFailedEvent,
 	}
 
 	// Assign configured topic handlers

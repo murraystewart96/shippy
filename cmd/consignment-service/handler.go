@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/murraystewart96/shippy/consignment-service/manager"
@@ -23,6 +24,8 @@ type handler struct {
 	paymentCli     paymentpb.PaymentServiceClient
 	outbox         storage.OutboxRepository
 }
+
+// *** HANDLERS ***
 
 func (h *handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*pb.Response, error) {
 	reservationResponse, err := h.reservationCli.ReserveCapacity(ctx, &reservepb.ReserveCapacityRequest{
@@ -55,6 +58,7 @@ func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		return nil, status.Error(codes.NotFound, "consignment not found")
 	}
 
+	// Refresh Reservation
 	_, err = h.reservationCli.RefreshReservation(ctx, &reservepb.CapacityActionRequest{Id: consignment.ReservationID})
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -74,12 +78,38 @@ func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 	})
 	if err != nil {
 		log.Printf("failed to authorise payment for consignment %s: %v", consignment.ID, err)
-		h.cancelConsignment(ctx, consignment.ID)
+		cancelConsignment(ctx, consignment.ID, h.repository)
 		return nil, status.Error(codes.Internal, "failed to authorise payment")
 	}
 
+	// Schedule Confirmation Event
+	err = h.scheduleConsignmentConfirmation(ctx, paymentResponse.AuthId, consignment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to confirm consignment: %w", err)
+	}
+
+	return &pb.ConfirmResponse{Confirmed: true}, nil
+}
+
+func GetConsignments(ctx context.Context, req *pb.GetRequest, repo storage.ConsignmentRepository) (*pb.Response, error) {
+	consignments, err := repo.GetAll(ctx)
+	if err != nil {
+		log.Printf("failed to get consignments: %v\n", err)
+		return nil, status.Error(codes.Internal, "failed to get consignments")
+	}
+
+	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
+}
+
+// *** HELPERS ***
+
+// scheduleConsignmentConfirmation creates an outbox event that tiggers the rest of the SAGA to
+// - capture payment
+// - confirm capacity on vessel
+// - update consignment as confirmed
+func (h *handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
 	confirmationEvent := &manager.ConfirmationEvent{
-		PaymentAuthID: paymentResponse.AuthId,
+		PaymentAuthID: paymentAuthID,
 		ReservationID: consignment.ReservationID,
 		ConsignmentID: consignment.ID,
 		VesselID:      consignment.VesselID,
@@ -92,9 +122,9 @@ func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		// json.Marshal on a struct with primitive fields should never fail,
 		// but handle it defensively
 		log.Printf("ALERT: failed to marshal confirmation event for consignment %s: %v", consignment.ID, err)
-		h.cancelConsignment(ctx, consignment.ID)
-		h.voidPayment(ctx, paymentResponse.AuthId)
-		return nil, status.Error(codes.Internal, "failed to process confirmation")
+		cancelConsignment(ctx, consignment.ID, h.repository)
+		voidPayment(ctx, paymentAuthID, h.paymentCli)
+		return status.Error(codes.Internal, "failed to process confirmation")
 	}
 
 	if err = h.outbox.CreateEvent(ctx, &storage.OutboxEvent{
@@ -103,35 +133,23 @@ func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		Payload: eventJSON,
 	}); err != nil {
 		log.Printf("failed to write outbox event for consignment %s: %v", consignment.ID, err)
-		h.cancelConsignment(ctx, consignment.ID)
-		h.voidPayment(ctx, paymentResponse.AuthId)
-		return nil, status.Error(codes.Internal, "failed to schedule confirmation")
+		cancelConsignment(ctx, consignment.ID, h.repository)
+		voidPayment(ctx, paymentAuthID, h.paymentCli)
+		return status.Error(codes.Internal, "failed to schedule confirmation")
 	}
 
-	return &pb.ConfirmResponse{Confirmed: true}, nil
+	return nil
 }
 
-func (h *handler) cancelConsignment(ctx context.Context, id string) {
-	if err := h.repository.UpdateStatus(ctx, id, storage.StatusCancelled); err != nil {
+func cancelConsignment(ctx context.Context, id string, repo storage.ConsignmentRepository) {
+	if err := repo.UpdateStatus(ctx, id, storage.StatusCancelled); err != nil {
 		// TODO - add alert
 		log.Printf("ALERT: failed to cancel consignment %s: %v", id, err)
 	}
 }
 
-func (h *handler) voidPayment(ctx context.Context, authID string) {
-	if _, err := h.paymentCli.Void(ctx, &paymentpb.VoidRequest{AuthId: authID}); err != nil {
+func voidPayment(ctx context.Context, authID string, payment paymentpb.PaymentServiceClient) {
+	if _, err := payment.Void(ctx, &paymentpb.VoidRequest{AuthId: authID}); err != nil {
 		log.Printf("ALERT: failed to void payment auth %s — authorisation will expire naturally: %v", authID, err)
 	}
 }
-
-func (h *handler) GetConsignments(ctx context.Context, req *pb.GetRequest) (*pb.Response, error) {
-	consignments, err := h.repository.GetAll(ctx)
-	if err != nil {
-		log.Printf("failed to get consignments: %v\n", err)
-		return nil, status.Error(codes.Internal, "failed to get consignments")
-	}
-
-	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
-}
-
-// *** HELPERS ***

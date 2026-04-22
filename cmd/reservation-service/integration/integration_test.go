@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -82,11 +83,15 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 	event := manager.CapacityEvent{
 		Action:          manager.CONFIRM,
 		ReservationInfo: reservation,
+		ConsignmentID:   "test-consignment-id",
+		PaymentID:       "test-payment-id",
 	}
 
 	s.publish(t, manager.ConfirmCapacityTopic, reservation.Id.String(), event)
 
-	consignmentDLQEventReceived := make(chan struct{})
+	var receivedEvent manager.FailedConfirmationEvent
+	consignmentConfirmationFailedReceived := make(chan struct{})
+
 	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
 		BootstrapServers: s.kafkaAddr,
 		GroupID:          "test-capacity-consumer",
@@ -101,8 +106,9 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_ = consumer.StartConsuming(ctx, kafka.EventHandlers{
-			manager.ConfirmConsignmentDLQTopic: func(ctx context.Context, key, value []byte) error {
-				close(consignmentDLQEventReceived)
+			manager.ConsignmentConfirmationFailedTopic: func(ctx context.Context, key, value []byte) error {
+				_ = json.Unmarshal(value, &receivedEvent)
+				close(consignmentConfirmationFailedReceived)
 				return nil
 			},
 		})
@@ -115,15 +121,18 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 	mgr := s.newManager(t, []string{manager.ConfirmCapacityTopic, manager.CapacityDLQTopic})
 	mgr.Start(ctx, &wg)
 
-	// Refund and cancel are handled by the consignnent service
+	// Refund and cancel are handled by the consignment service
 	select {
-	case <-consignmentDLQEventReceived:
+	case <-consignmentConfirmationFailedReceived:
 	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for confirm consignment DLQ event")
 	}
 
-	// TODO: maybe we should run the consignment serivce and prove the
-	// cancel reservervation event is published and consumed by the reservation service
+	assert.True(t, receivedEvent.PaymentCaptured)
+	assert.True(t, receivedEvent.CacheCleared)
+	assert.Equal(t, "test-payment-id", receivedEvent.PaymentID)
+	assert.Equal(t, "test-consignment-id", receivedEvent.ConsignmentID)
+
 	assert.Eventually(t, func() bool {
 		s.vesselSvc.mu.Lock()
 		calls := s.vesselSvc.confirmCapacityCalls

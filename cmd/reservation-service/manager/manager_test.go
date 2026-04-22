@@ -38,16 +38,20 @@ func TestReleaseReservations(t *testing.T) {
 	err = mgr.releaseReservations(t.Context())
 	assert.NoError(t, err)
 
-	// One outbox event scheduled per expired reservation
-	assert.Len(t, createdEvents, len(reservations))
+	// Two outbox events scheduled per expired reservation
+	assert.Len(t, createdEvents, len(reservations)*2)
 
 	// Each event key matches a reservation ID
 	reservationIDs := make(map[string]bool)
 	for _, r := range reservations {
 		reservationIDs[r.Id.String()] = true
 	}
-	for _, e := range createdEvents {
-		assert.True(t, reservationIDs[e.Key], "unexpected reservation ID in outbox event: %s", e.Key)
-		assert.Equal(t, ReleaseCapacityTopic, e.Topic)
+
+	expectedTopic := []string{ReleaseCapacityTopic, ConsignmentCancelledTopic}
+	for i, e := range createdEvents {
+		if e.Topic == ReleaseCapacityTopic {
+			assert.True(t, reservationIDs[e.Key], "unexpected reservation ID in outbox event: %s", e.Key)
+		}
+		assert.Equal(t, expectedTopic[i%2], e.Topic)
 	}
 }

@@ -137,7 +137,7 @@ func TestMain(m *testing.M) {
 		{Name: manager.ReleaseCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ConfirmCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.CapacityDLQTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.ConfirmConsignmentDLQTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
 	}); err != nil {
 		panic(err)
 	}

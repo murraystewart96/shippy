@@ -116,6 +116,7 @@ func main() {
 			consignmentmanager.ConsignmentConfirmationFailedTopic,
 			consignmentmanager.ConsignmentConfirmedTopic,
 			consignmentmanager.ConsignmentCancelledTopic,
+			consignmentmanager.ConsignmentStatusFailedTopic,
 		},
 		outbox,
 		paymentCli,

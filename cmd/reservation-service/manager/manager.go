@@ -18,7 +18,8 @@ const (
 	ConfirmCapacityTopic = "reservation.capacity.confirm"
 	CapacityDLQTopic     = "reservation.capacity.dlq"
 
-	ConfirmConsignmentDLQTopic = "consignment.confirm.dlq"
+	ConsignmentConfirmationFailedTopic = "consignment.confirmation.failed"
+	ConsignmentCancelledTopic          = "consignment.cancelled"
 
 	maxRetries = 3
 )
@@ -148,25 +149,20 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 			RetryCount:      0,
 		}
 
-		if err := m.scheduleEvent(ctx, &event); err != nil {
+		// TODO: maybe we need to alert if we fail either of these
+		if err := m.scheduleCapacityEvent(ctx, &event); err != nil {
 			log.Warn().
 				Str("reservation_id", expiredReservation.Id.String()).
 				Err(err).
 				Msg("failed to schedule release event")
-		} else {
-			log.Info().
-				Str("reservation_id", expiredReservation.Id.String()).
-				Str("vessel_id", expiredReservation.VesselID.String()).
-				Msg("release event scheduled")
 		}
 
-		// TODO: check if this is the right level to publish
-		// We should also schedule event to cancel the consignment
-		// i think we could also use the outbox pattern here.
-		// we would either need to update the schedule event function to accept
-		// a consignment event also or we coud publish here directly
-
-		// we need the reservation info to also store the consignment ID
+		if err := m.scheduleConsignmentCancel(ctx, expiredReservation.ConsignmentID.String()); err != nil {
+			log.Warn().
+				Str("consignment_id", expiredReservation.ConsignmentID.String()).
+				Err(err).
+				Msg("failed to schedule consignment cancellation")
+		}
 	}
 
 	return nil
