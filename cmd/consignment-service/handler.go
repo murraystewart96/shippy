@@ -133,3 +133,5 @@ func (h *handler) GetConsignments(ctx context.Context, req *pb.GetRequest) (*pb.
 
 	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
 }
+
+// *** HELPERS ***

@@ -297,6 +297,7 @@ func (m *Manager) scheduleConsignmentStatusEvent(ctx context.Context, event *Con
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
+	// Send to failed topic if retries are exhausted
 	topic := ConsignmentStatusFailedTopic
 	if event.RetryCount <= maxRetries {
 		switch event.Action {

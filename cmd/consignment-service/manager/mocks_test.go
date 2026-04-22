@@ -51,9 +51,8 @@ type mockOutbox struct {
 	markPublished    func(ctx context.Context, id uuid.UUID) error
 	getPendingEvents func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error)
 
-	mu         sync.Mutex
-	data       map[string]*storage.OutboxEvent
-	eventTopic string
+	mu   sync.Mutex
+	data map[string]*storage.OutboxEvent
 }
 
 func (m *mockOutbox) CreateEvent(ctx context.Context, event *storage.OutboxEvent) error {
@@ -74,7 +73,6 @@ func newOutboxWithStore() *mockOutbox {
 		o.mu.Lock()
 		defer o.mu.Unlock()
 		o.data[event.Key] = event
-		o.eventTopic = event.Topic
 		return nil
 	}
 	o.getPendingEvents = func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error) {
@@ -87,6 +85,9 @@ func newOutboxWithStore() *mockOutbox {
 			}
 		}
 		return pending, nil
+	}
+	o.markPublished = func(ctx context.Context, id uuid.UUID) error {
+		return nil
 	}
 	return o
 }
