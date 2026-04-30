@@ -26,13 +26,10 @@ const (
 	//
 	// Both shapes trigger: undo payment, release reservation, cancel consignment.
 	ConsignmentConfirmationFailedTopic = "consignment.confirmation.failed"
+	ReservationExpiredTopic            = "reservation.expired"
 
-	ConsignmentConfirmedTopic    = "consignment.confirmed"
-	ConsignmentCancelledTopic    = "consignment.cancelled"
-	ConsignmentStatusFailedTopic = "consignment.status.failed"
-
-	ConfirmCapacityTopic = "reservation.capacity.confirm"
-	ReleaseCapacityTopic = "reservation.capacity.release"
+	// Outgoing topics
+	PaymentCapturedTopic = "consignment.payment.captured"
 
 	maxRetries = 3
 )
@@ -69,9 +66,9 @@ func New(
 	eventHandlers := kafka.EventHandlers{
 		ConsignmentPaymentAuthorisedTopic:  manager.handlePaymentAuthorisedEvent,
 		ConsignmentConfirmationFailedTopic: manager.handleFailedConfirmationEvent,
-		ConsignmentCancelledTopic:          manager.handleConsignmentCancelledEvent,
-		ConsignmentConfirmedTopic:          manager.handleConsignmentConfirmedEvent,
-		ConsignmentStatusFailedTopic:       manager.handleConsignmentStatusFailedEvent,
+
+		// NEW handlers
+		ReservationExpiredTopic: manager.handleExpiredReservationEvent,
 	}
 
 	// Assign configured topic handlers

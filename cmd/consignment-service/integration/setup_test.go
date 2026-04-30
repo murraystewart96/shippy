@@ -3,32 +3,36 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/murraystewart96/shippy/consignment-service/manager"
+	"github.com/murraystewart96/shippy/consignment-service/server"
 	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
 	"github.com/murraystewart96/shippy/pkg/kafka"
+	consignmentpb "github.com/murraystewart96/shippy/proto/consignment"
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
+	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 	"github.com/stretchr/testify/require"
 	tcKafka "github.com/testcontainers/testcontainers-go/modules/kafka"
 	tcMongo "github.com/testcontainers/testcontainers-go/modules/mongodb"
 	mongoDriver "go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var s *suite
 
 type suite struct {
-	kafkaAddr   string
-	mongoCli    *mongoDriver.Client
-	producer    kafka.IProducer
-	paymentSvc  *mockPaymentService
-	paymentAddr string
+	kafkaAddr       string
+	mongoCli        *mongoDriver.Client
+	producer        kafka.IProducer
+	paymentSvc      *mockPaymentService
+	paymentAddr     string
+	reservationSvc  *mockReservationService
+	consignmentAddr string
 }
 
 func TestMain(m *testing.M) {
@@ -77,34 +81,73 @@ func TestMain(m *testing.M) {
 
 	// --- In-process mock payment gRPC server ---
 	paymentSvc := &mockPaymentService{}
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	paymentLis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)
 	}
 	paymentSrv := grpc.NewServer()
 	paymentpb.RegisterPaymentServiceServer(paymentSrv, paymentSvc)
-	go func() { _ = paymentSrv.Serve(lis) }()
+	go func() { _ = paymentSrv.Serve(paymentLis) }()
 	defer paymentSrv.Stop()
+
+	// --- In-process mock reservation gRPC server ---
+	reservationSvc := &mockReservationService{}
+	reservationLis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		panic(err)
+	}
+	reservationSrv := grpc.NewServer()
+	reservepb.RegisterReservationServiceServer(reservationSrv, reservationSvc)
+	go func() { _ = reservationSrv.Serve(reservationLis) }()
+	defer reservationSrv.Stop()
 
 	// --- Ensure Kafka topics ---
 	if err := kafka.EnsureTopics(ctx, kafkaAddr, []kafka.TopicConfig{
 		{Name: manager.ConsignmentPaymentAuthorisedTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.ConsignmentConfirmedTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.ConsignmentCancelledTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.ConsignmentStatusFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.ConfirmCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.ReleaseCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReservationExpiredTopic, NumPartitions: 1, ReplicationFactor: 1},
 	}); err != nil {
 		panic(err)
 	}
 
+	// --- In-process CS gRPC server ---
+	paymentConn, err := grpc.NewClient(paymentLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic(err)
+	}
+	defer paymentConn.Close()
+
+	reservationConn, err := grpc.NewClient(reservationLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic(err)
+	}
+	defer reservationConn.Close()
+
+	consignmentCol := mongoCli.Database("shippy_test").Collection("consignments")
+	outboxCol := mongoCli.Database("shippy_test").Collection("outbox")
+
+	h := server.NewHandler(
+		mongo.New(consignmentCol),
+		reservepb.NewReservationServiceClient(reservationConn),
+		paymentpb.NewPaymentServiceClient(paymentConn),
+		mongo.NewOutbox(outboxCol),
+	)
+	consignmentSrv := server.NewGRPCServer(h)
+	consignmentLis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		panic(err)
+	}
+	go func() { _ = consignmentSrv.Serve(consignmentLis) }()
+	defer consignmentSrv.Stop()
+
 	s = &suite{
-		kafkaAddr:   kafkaAddr,
-		mongoCli:    mongoCli,
-		producer:    producer,
-		paymentSvc:  paymentSvc,
-		paymentAddr: lis.Addr().String(),
+		kafkaAddr:       kafkaAddr,
+		mongoCli:        mongoCli,
+		producer:        producer,
+		paymentSvc:      paymentSvc,
+		paymentAddr:     paymentLis.Addr().String(),
+		reservationSvc:  reservationSvc,
+		consignmentAddr: consignmentLis.Addr().String(),
 	}
 
 	os.Exit(m.Run())
@@ -130,11 +173,10 @@ func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
 
 	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
 		BootstrapServers: s.kafkaAddr,
-		GroupID:          fmt.Sprintf("test-%d", time.Now().UnixNano()),
+		GroupID:          "integration-test-consignment-manager",
 		OffsetReset:      "earliest",
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = consumer.Close() })
 
 	outbox := mongo.NewOutbox(s.mongoCli.Database("shippy_test").Collection("outbox"))
 	repository := mongo.New(s.mongoCli.Database("shippy_test").Collection("consignments"))
@@ -151,6 +193,15 @@ func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
 	require.NoError(t, err)
 
 	return mgr
+}
+
+// newConsignmentClient returns a gRPC client connected to the in-process CS server.
+func (s *suite) newConsignmentClient(t *testing.T) consignmentpb.ConsignmentServiceClient {
+	t.Helper()
+	conn, err := grpc.NewClient(s.consignmentAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return consignmentpb.NewConsignmentServiceClient(conn)
 }
 
 // publish sends a message directly to a Kafka topic.

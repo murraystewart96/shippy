@@ -3,23 +3,22 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"net"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
 
-	consignmentmanager "github.com/murraystewart96/shippy/consignment-service/manager"
+	"github.com/rs/zerolog/log"
+
+	"github.com/murraystewart96/shippy/consignment-service/manager"
+	"github.com/murraystewart96/shippy/consignment-service/server"
 	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
 	"github.com/murraystewart96/shippy/pkg/kafka"
-	pb "github.com/murraystewart96/shippy/proto/consignment"
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
 	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection"
 )
 
 const (
@@ -28,6 +27,12 @@ const (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal().Err(err).Send()
+	}
+}
+
+func run() error {
 	grpcAddr := os.Getenv("GRPC_ADDRESS")
 	if grpcAddr == "" {
 		grpcAddr = ":50051"
@@ -63,29 +68,25 @@ func main() {
 	if port == "" {
 		port = defaultPort
 	}
-	uri := fmt.Sprintf("mongodb://%s:%s", host, port)
 
-	mongoCli, err := mongo.CreateClient(context.Background(), uri, 0)
+	mongoCli, err := mongo.CreateClient(context.Background(), fmt.Sprintf("mongodb://%s:%s", host, port), 0)
 	if err != nil {
-		log.Panic(err)
+		return err
 	}
 	defer mongoCli.Disconnect(context.Background())
 
-	consignmentCollection := mongoCli.Database("shippy").Collection("consignments")
-	outboxCollection := mongoCli.Database("shippy").Collection("outbox")
-
-	repository := mongo.New(consignmentCollection)
-	outbox := mongo.NewOutbox(outboxCollection)
+	repository := mongo.New(mongoCli.Database("shippy").Collection("consignments"))
+	outbox := mongo.NewOutbox(mongoCli.Database("shippy").Collection("outbox"))
 
 	reservationConn, err := grpc.NewClient(reservationServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("failed to connect to reservation service: %v", err)
+		return err
 	}
 	defer reservationConn.Close()
 
 	paymentConn, err := grpc.NewClient(paymentServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("failed to connect to payment service: %v", err)
+		return err
 	}
 	defer paymentConn.Close()
 
@@ -96,7 +97,7 @@ func main() {
 		Acks:             "all",
 	})
 	if err != nil {
-		log.Fatalf("failed to create kafka producer: %v", err)
+		return err
 	}
 
 	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
@@ -105,67 +106,48 @@ func main() {
 		OffsetReset:      "earliest",
 	})
 	if err != nil {
-		log.Fatalf("failed to create kafka consumer: %v", err)
+		return err
 	}
 
-	mgr, err := consignmentmanager.New(
+	mgr, err := manager.New(
 		producer,
 		consumer,
 		[]string{
-			consignmentmanager.ConsignmentPaymentAuthorisedTopic,
-			consignmentmanager.ConsignmentConfirmationFailedTopic,
-			consignmentmanager.ConsignmentConfirmedTopic,
-			consignmentmanager.ConsignmentCancelledTopic,
-			consignmentmanager.ConsignmentStatusFailedTopic,
+			manager.ConsignmentPaymentAuthorisedTopic,
+			manager.ConsignmentConfirmationFailedTopic,
+			manager.ReservationExpiredTopic,
 		},
 		outbox,
 		paymentCli,
 		repository,
-		consignmentmanager.Config{OutboxInterval: outboxInterval},
+		manager.Config{OutboxInterval: outboxInterval},
 	)
 	if err != nil {
-		log.Fatalf("failed to create manager: %v", err)
+		return err
 	}
 
-	handler := &handler{
-		repository:     repository,
-		reservationCli: reservepb.NewReservationServiceClient(reservationConn),
-		paymentCli:     paymentCli,
-		outbox:         outbox,
-	}
+	h := server.NewHandler(repository, reservepb.NewReservationServiceClient(reservationConn), paymentCli, outbox)
+	grpcServer := server.NewGRPCServer(h)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	var wg sync.WaitGroup
-	errCh := mgr.Start(ctx, &wg)
+	managerErrCh := mgr.Start(ctx, &wg)
+	grpcErrCh := server.GRPCServe(grpcServer, grpcAddr, &wg)
 
-	lis, err := net.Listen("tcp", grpcAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	srv := grpc.NewServer()
-	pb.RegisterConsignmentServiceServer(srv, handler)
-	reflection.Register(srv)
-
-	go func() {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		select {
-		case <-quit:
-			log.Println("shutting down...")
-		case err := <-errCh:
-			log.Printf("manager error: %v", err)
-		}
+	select {
+	case err := <-managerErrCh:
+		log.Error().Err(err).Msg("manager error — shutting down")
 		cancel()
-		srv.GracefulStop()
-	}()
-
-	log.Printf("consignment-service listening on %s", grpcAddr)
-	if err := srv.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	case err := <-grpcErrCh:
+		log.Error().Err(err).Msg("gRPC server error — shutting down")
+		cancel()
+	case <-ctx.Done():
 	}
 
+	grpcServer.GracefulStop()
 	wg.Wait()
+
+	return nil
 }

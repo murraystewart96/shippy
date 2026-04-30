@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type handler struct {
+type Handler struct {
 	pb.UnimplementedConsignmentServiceServer
 	repository     storage.ConsignmentRepository
 	reservationCli reservepb.ReservationServiceClient
@@ -25,9 +25,21 @@ type handler struct {
 	outbox         storage.OutboxRepository
 }
 
-// *** HANDLERS ***
+func NewHandler(
+	repo storage.ConsignmentRepository,
+	reservationCli reservepb.ReservationServiceClient,
+	paymentCli paymentpb.PaymentServiceClient,
+	outbox storage.OutboxRepository,
+) *Handler {
+	return &Handler{
+		repository:     repo,
+		reservationCli: reservationCli,
+		paymentCli:     paymentCli,
+		outbox:         outbox,
+	}
+}
 
-func (h *handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*pb.Response, error) {
+func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*pb.Response, error) {
 	reservationResponse, err := h.reservationCli.ReserveCapacity(ctx, &reservepb.ReserveCapacityRequest{
 		ConsignmentId:      req.Id,
 		Weight:             req.Weight,
@@ -50,15 +62,13 @@ func (h *handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*
 	return &pb.Response{Created: true, Consignment: mongo.UnmarshalConsignment(consignment)}, nil
 }
 
-func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest) (*pb.ConfirmResponse, error) {
-	// Get consignment
+func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest) (*pb.ConfirmResponse, error) {
 	consignment, err := h.repository.GetByID(ctx, req.Id)
 	if err != nil {
 		log.Printf("failed to get consignment %s: %v", req.Id, err)
 		return nil, status.Error(codes.NotFound, "consignment not found")
 	}
 
-	// Refresh Reservation
 	_, err = h.reservationCli.RefreshReservation(ctx, &reservepb.CapacityActionRequest{Id: consignment.ReservationID})
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -69,10 +79,9 @@ func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		return nil, status.Error(codes.Internal, "failed to refresh reservation")
 	}
 
-	// Authorise payment
 	paymentResponse, err := h.paymentCli.Authorise(ctx, &paymentpb.AuthoriseRequest{
 		ConsignmentId:  consignment.ID,
-		Amount:         100, // TODO: derive from consignment
+		Amount:         100,
 		Currency:       "GBP",
 		IdempotencyKey: consignment.ID,
 	})
@@ -82,32 +91,14 @@ func (h *handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		return nil, status.Error(codes.Internal, "failed to authorise payment")
 	}
 
-	// Schedule Confirmation Event
-	err = h.scheduleConsignmentConfirmation(ctx, paymentResponse.AuthId, consignment)
-	if err != nil {
+	if err := h.scheduleConsignmentConfirmation(ctx, paymentResponse.AuthId, consignment); err != nil {
 		return nil, fmt.Errorf("failed to confirm consignment: %w", err)
 	}
 
 	return &pb.ConfirmResponse{Confirmed: true}, nil
 }
 
-func GetConsignments(ctx context.Context, req *pb.GetRequest, repo storage.ConsignmentRepository) (*pb.Response, error) {
-	consignments, err := repo.GetAll(ctx)
-	if err != nil {
-		log.Printf("failed to get consignments: %v\n", err)
-		return nil, status.Error(codes.Internal, "failed to get consignments")
-	}
-
-	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
-}
-
-// *** HELPERS ***
-
-// scheduleConsignmentConfirmation creates an outbox event that tiggers the rest of the SAGA to
-// - capture payment
-// - confirm capacity on vessel
-// - update consignment as confirmed
-func (h *handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
+func (h *Handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
 	confirmationEvent := &manager.ConfirmationEvent{
 		PaymentAuthID: paymentAuthID,
 		ReservationID: consignment.ReservationID,
@@ -119,8 +110,6 @@ func (h *handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAu
 
 	eventJSON, err := json.Marshal(confirmationEvent)
 	if err != nil {
-		// json.Marshal on a struct with primitive fields should never fail,
-		// but handle it defensively
 		log.Printf("ALERT: failed to marshal confirmation event for consignment %s: %v", consignment.ID, err)
 		cancelConsignment(ctx, consignment.ID, h.repository)
 		voidPayment(ctx, paymentAuthID, h.paymentCli)
@@ -143,13 +132,12 @@ func (h *handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAu
 
 func cancelConsignment(ctx context.Context, id string, repo storage.ConsignmentRepository) {
 	if err := repo.UpdateStatus(ctx, id, storage.StatusCancelled); err != nil {
-		// TODO - add alert
 		log.Printf("ALERT: failed to cancel consignment %s: %v", id, err)
 	}
 }
 
-func voidPayment(ctx context.Context, authID string, payment paymentpb.PaymentServiceClient) {
-	if _, err := payment.Void(ctx, &paymentpb.VoidRequest{AuthId: authID}); err != nil {
+func voidPayment(ctx context.Context, authID string, paymentCli paymentpb.PaymentServiceClient) {
+	if _, err := paymentCli.Void(ctx, &paymentpb.VoidRequest{AuthId: authID}); err != nil {
 		log.Printf("ALERT: failed to void payment auth %s — authorisation will expire naturally: %v", authID, err)
 	}
 }

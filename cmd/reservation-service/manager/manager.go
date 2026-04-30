@@ -14,10 +14,18 @@ import (
 )
 
 const (
+	// Inbound — published by CS, consumed by RS.
+	PaymentCapturedTopic = "consignment.payment.captured"
+
+	// Internal — RS retry/DLQ.
 	ReleaseCapacityTopic = "reservation.capacity.release"
 	ConfirmCapacityTopic = "reservation.capacity.confirm"
-	CapacityDLQTopic     = "reservation.capacity.dlq"
+	CapacityFailedTopic  = "reservation.capacity.failed"
 
+	// Fan-out — published by RS, consumed by RS + CS.
+	ReservationExpiredTopic = "reservation.expired"
+
+	// Outbound — published by RS, consumed by CS.
 	ConsignmentConfirmationFailedTopic = "consignment.confirmation.failed"
 	ConsignmentCancelledTopic          = "consignment.cancelled"
 
@@ -55,9 +63,11 @@ func New(
 	}
 
 	eventHandlers := kafka.EventHandlers{
-		ReleaseCapacityTopic: manager.handleCapacityEvent,
-		ConfirmCapacityTopic: manager.handleCapacityEvent,
-		CapacityDLQTopic:     manager.handleCapacityDLQEvent,
+		PaymentCapturedTopic:    manager.handlePaymentCapturedEvent,
+		ReleaseCapacityTopic:    manager.handleCapacityEvent,
+		ConfirmCapacityTopic:    manager.handleCapacityEvent,
+		ReservationExpiredTopic: manager.handleReservationExpiredEvent,
+		CapacityFailedTopic:     manager.handleFailedCapacityEvent,
 	}
 
 	// Assign configured topic handlers
@@ -142,26 +152,13 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 	log.Info().Int("count", len(expired)).Msg("found expired reservations — scheduling release events")
 
 	for _, expiredReservation := range expired {
-		event := CapacityEvent{
-			Action:          RELEASE,
-			ReservationInfo: *expiredReservation,
-			CacheCleared:    false,
-			RetryCount:      0,
-		}
-
-		// TODO: maybe we need to alert if we fail either of these
-		if err := m.scheduleCapacityEvent(ctx, &event); err != nil {
+		// TODO: when releasing expired reservations we might need to refund user
+		// if payment was captured but the event wasnt received within the timeout for some reason (kafka broker going down)
+		if err := m.scheduleReservationExpired(ctx, expiredReservation); err != nil {
 			log.Warn().
 				Str("reservation_id", expiredReservation.Id.String()).
 				Err(err).
-				Msg("failed to schedule release event")
-		}
-
-		if err := m.scheduleConsignmentCancel(ctx, expiredReservation.ConsignmentID.String()); err != nil {
-			log.Warn().
-				Str("consignment_id", expiredReservation.ConsignmentID.String()).
-				Err(err).
-				Msg("failed to schedule consignment cancellation")
+				Msg("failed to schedule reservation expired event")
 		}
 	}
 

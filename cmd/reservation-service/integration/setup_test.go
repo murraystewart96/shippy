@@ -136,7 +136,8 @@ func TestMain(m *testing.M) {
 	if err := kafka.EnsureTopics(ctx, kafkaAddr, []kafka.TopicConfig{
 		{Name: manager.ReleaseCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ConfirmCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
-		{Name: manager.CapacityDLQTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.CapacityFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.PaymentCapturedTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
 	}); err != nil {
 		panic(err)
@@ -180,7 +181,6 @@ func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
 		OffsetReset:      "earliest",
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = consumer.Close() })
 
 	mgr, err := manager.New(
 		vesselpb.NewVesselServiceClient(vesselConn),

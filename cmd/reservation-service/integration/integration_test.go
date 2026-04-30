@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
+func TestHandlePaymentCapturedEvent_HappyPath(t *testing.T) {
 	s.cleanState(t)
 	s.vesselSvc.reset()
 
@@ -40,11 +40,11 @@ func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 		ReservationInfo: reservation,
 	}
 
-	s.publish(t, manager.ConfirmCapacityTopic, reservation.Id.String(), event)
+	s.publish(t, manager.PaymentCapturedTopic, reservation.Id.String(), event)
 
 	var wg sync.WaitGroup
 
-	mgr := s.newManager(t, []string{manager.ConfirmCapacityTopic})
+	mgr := s.newManager(t, []string{manager.PaymentCapturedTopic})
 	mgr.Start(ctx, &wg)
 
 	assert.Eventually(t, func() bool {
@@ -62,7 +62,7 @@ func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 	wg.Wait()
 }
 
-func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
+func TestHandleFailedPaymentCapturedEvent_RefundAndCancel(t *testing.T) {
 	s.cleanState(t)
 	s.vesselSvc.reset()
 
@@ -87,7 +87,7 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 		PaymentID:       "test-payment-id",
 	}
 
-	s.publish(t, manager.ConfirmCapacityTopic, reservation.Id.String(), event)
+	s.publish(t, manager.PaymentCapturedTopic, reservation.Id.String(), event)
 
 	var receivedEvent manager.FailedConfirmationEvent
 	consignmentConfirmationFailedReceived := make(chan struct{})
@@ -118,10 +118,14 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 		return nil, fmt.Errorf("failed to confirm capacity")
 	}
 
-	mgr := s.newManager(t, []string{manager.ConfirmCapacityTopic, manager.CapacityDLQTopic})
+	mgr := s.newManager(t, []string{
+		manager.PaymentCapturedTopic,
+		manager.ConfirmCapacityTopic,
+		manager.CapacityFailedTopic,
+	})
 	mgr.Start(ctx, &wg)
 
-	// Refund and cancel are handled by the consignment service
+	// Consignment confirmation failure event published
 	select {
 	case <-consignmentConfirmationFailedReceived:
 	case <-time.After(15 * time.Second):
@@ -135,9 +139,10 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 
 	assert.Eventually(t, func() bool {
 		s.vesselSvc.mu.Lock()
-		calls := s.vesselSvc.confirmCapacityCalls
+		confirmCalls := s.vesselSvc.confirmCapacityCalls
+		releaseCalls := s.vesselSvc.releaseCapacityCalls
 		s.vesselSvc.mu.Unlock()
-		return calls == 4
+		return confirmCalls == 3 && releaseCalls == 1
 	}, 15*time.Second, 500*time.Millisecond)
 
 	// After Eventually, assert cache was cleared

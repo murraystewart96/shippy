@@ -9,16 +9,97 @@ import (
 	"github.com/murraystewart96/shippy/consignment-service/manager"
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	"github.com/murraystewart96/shippy/pkg/kafka"
+	pb "github.com/murraystewart96/shippy/proto/consignment"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
+func TestConsignmentCreateAndConfirmation(t *testing.T) {
+	s.cleanState(t)
+	s.paymentSvc.reset()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	col := s.mongoCli.Database("shippy_test").Collection("consignments")
+
+	consignmentCli := s.newConsignmentClient(t)
+
+	mgr := s.newManager(t, []string{
+		manager.ConsignmentPaymentAuthorisedTopic,
+		manager.ConsignmentConfirmationFailedTopic,
+		manager.ReservationExpiredTopic,
+	})
+
+	var wg sync.WaitGroup
+
+	// TODO: handle err
+	mgr.Start(ctx, &wg)
+
+	consignment := &pb.Consignment{
+		Description: "This is a test consignment",
+		Weight:      550,
+		Containers: []*pb.Container{
+			{
+				CustomerId: "cust001",
+				UserId:     "user001",
+				Origin:     "Manchester, United Kingdom",
+			},
+		},
+	}
+
+	createRes, err := consignmentCli.CreateConsignment(ctx, consignment)
+	require.NoError(t, err)
+
+	confirmRes, err := consignmentCli.ConfirmConsignment(ctx, &pb.ConfirmRequest{Id: createRes.Consignment.Id})
+	require.NoError(t, err)
+	assert.Equal(t, true, confirmRes.Confirmed)
+
+	paymentCapturedEvent := make(chan struct{})
+	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
+		BootstrapServers: s.kafkaAddr,
+		GroupID:          "test-capacity-consumer",
+		OffsetReset:      "earliest",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = consumer.Close() })
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = consumer.StartConsuming(ctx, kafka.EventHandlers{
+			manager.PaymentCapturedTopic: func(ctx context.Context, key, value []byte) error {
+				close(paymentCapturedEvent)
+				return nil
+			},
+		})
+	}()
+
+	// Payment Captured event was sent and received
+	select {
+	case <-paymentCapturedEvent:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for payment captured event")
+	}
+
+	// Consignment status should update to confirm
+	assert.Eventually(t, func() bool {
+		var result bson.M
+		err := col.FindOne(ctx, bson.M{"_id": createRes.Consignment.Id}).Decode(&result)
+		if err != nil {
+			return false
+		}
+
+		return result["status"] == string(storage.StatusConfirmed)
+	}, 15*time.Second, 500*time.Millisecond, "consignment status should be confirmed")
+}
+
 func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 	s.cleanState(t)
 	s.paymentSvc.reset()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	consignmentID := "test-consignment-id"
@@ -43,7 +124,7 @@ func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 	}
 	s.publish(t, manager.ConsignmentPaymentAuthorisedTopic, consignmentID, event)
 
-	capacityEventReceived := make(chan struct{})
+	paymentCapturedEvent := make(chan struct{})
 	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
 		BootstrapServers: s.kafkaAddr,
 		GroupID:          "test-capacity-consumer",
@@ -58,20 +139,22 @@ func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_ = consumer.StartConsuming(ctx, kafka.EventHandlers{
-			manager.ConfirmCapacityTopic: func(ctx context.Context, key, value []byte) error {
-				close(capacityEventReceived)
+			manager.PaymentCapturedTopic: func(ctx context.Context, key, value []byte) error {
+				close(paymentCapturedEvent)
 				return nil
 			},
 		})
 	}()
 
-	mgr := s.newManager(t, []string{manager.ConsignmentPaymentAuthorisedTopic, manager.ConsignmentConfirmedTopic})
+	mgr := s.newManager(t, []string{manager.ConsignmentPaymentAuthorisedTopic})
+
+	// TODO: handle err
 	mgr.Start(ctx, &wg)
 
 	select {
-	case <-capacityEventReceived:
+	case <-paymentCapturedEvent:
 	case <-time.After(15 * time.Second):
-		t.Fatal("timed out waiting for confirm capacity event")
+		t.Fatal("timed out waiting for payment captured event")
 	}
 
 	assert.Equal(t, 1, s.paymentSvc.captureCalls)
@@ -119,39 +202,10 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 	}
 	s.publish(t, manager.ConsignmentConfirmationFailedTopic, consignmentID, event)
 
-	releaseEventReceived := make(chan struct{})
-	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
-		BootstrapServers: s.kafkaAddr,
-		GroupID:          "test-release-consumer",
-		OffsetReset:      "earliest",
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = consumer.Close() })
-
 	var wg sync.WaitGroup
 
-	// Consume release event triggered by "consignment.confirmation.failed"
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_ = consumer.StartConsuming(ctx, kafka.EventHandlers{
-			manager.ReleaseCapacityTopic: func(ctx context.Context, key, value []byte) error {
-				close(releaseEventReceived)
-				return nil
-			},
-		})
-	}()
-
-	mgr := s.newManager(t, []string{manager.ConsignmentConfirmationFailedTopic, manager.ConsignmentCancelledTopic})
+	mgr := s.newManager(t, []string{manager.ConsignmentConfirmationFailedTopic})
 	mgr.Start(ctx, &wg)
-
-	select {
-	case <-releaseEventReceived:
-	case <-time.After(15 * time.Second):
-		t.Fatal("timed out waiting for release capacity event")
-	}
-
-	assert.Equal(t, 1, s.paymentSvc.refundCalls)
 
 	assert.Eventually(t, func() bool {
 		var result bson.M
@@ -159,7 +213,7 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return result["status"] == string(storage.StatusCancelled)
+		return result["status"] == string(storage.StatusCancelled) && s.paymentSvc.refundCalls == 1
 	}, 15*time.Second, 500*time.Millisecond, "consignment status should be cancelled")
 
 	cancel()

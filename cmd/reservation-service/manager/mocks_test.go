@@ -56,7 +56,7 @@ type mockOutbox struct {
 	markPublished    func(ctx context.Context, id uuid.UUID) error
 	getPendingEvents func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error)
 
-	// In memory data store
+	mu   sync.Mutex
 	data map[string]*storage.OutboxEvent
 }
 
@@ -90,10 +90,12 @@ func (m *mockVesselClient) ReserveCapacity(ctx context.Context, in *vesselpb.Spe
 }
 
 func (m *mockVesselClient) ReleaseCapacity(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
+	m.releaseCalls++
 	return m.releaseCapacity(ctx, in, opts...)
 }
 
 func (m *mockVesselClient) ConfirmCapacity(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
+	m.confirmCalls++
 	return m.confirmCapacity(ctx, in, opts...)
 }
 

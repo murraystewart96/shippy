@@ -48,8 +48,13 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 			return &payment.CaptureResponse{PaymentId: testPaymentID}, nil
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -68,7 +73,9 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 
 	// ConsignmentConfirmed event only exists in happy path
 	topics := pendingTopics(t, outbox)
-	assert.Contains(t, topics, ConsignmentConfirmedTopic)
+	assert.Contains(t, topics, PaymentCapturedTopic)
+	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, storage.StatusConfirmed, repo.lastStatus)
 }
 
 func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testing.T) {
@@ -77,8 +84,13 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 			return &payment.CaptureResponse{PaymentId: testPaymentID}, nil
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -96,7 +108,9 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 
 	// ConsignmentConfirmed event only exists in happy path
 	topics := pendingTopics(t, outbox)
-	assert.Contains(t, topics, ConsignmentConfirmedTopic)
+	assert.Contains(t, topics, PaymentCapturedTopic)
+	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, storage.StatusConfirmed, repo.lastStatus)
 }
 
 func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
@@ -105,8 +119,13 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 			return nil, fmt.Errorf("payment failed")
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -115,8 +134,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 	}
 
 	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "payment failed")
+	require.NoError(t, err)
 
 	pending, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
 	require.NoError(t, err)
@@ -126,16 +144,20 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 	assert.Equal(t, ConsignmentPaymentAuthorisedTopic, pending[0].Topic)
 }
 
-func TestHandlePaymentAuthorisedEvent_CapacityEventFails_SchedulesRetry(t *testing.T) {
+func TestHandlePaymentAuthorisedEvent_PaymentCapturedEventFails_SchedulesRetry(t *testing.T) {
 	paymentCli := &mockPaymentClient{
 		capture: func(ctx context.Context, in *payment.CaptureRequest, opts ...grpc.CallOption) (*payment.CaptureResponse, error) {
 			return &payment.CaptureResponse{PaymentId: testPaymentID}, nil
 		},
 	}
-
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
 	outbox.createEvent = func(ctx context.Context, event *storage.OutboxEvent) error {
-		if event.Topic == ConfirmCapacityTopic {
+		if event.Topic == PaymentCapturedTopic {
 			return fmt.Errorf("outbox write failed")
 		}
 		outbox.mu.Lock()
@@ -144,7 +166,7 @@ func TestHandlePaymentAuthorisedEvent_CapacityEventFails_SchedulesRetry(t *testi
 		return nil
 	}
 
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -153,8 +175,7 @@ func TestHandlePaymentAuthorisedEvent_CapacityEventFails_SchedulesRetry(t *testi
 	}
 
 	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to write confirm capacity event")
+	assert.NoError(t, err)
 
 	assert.Equal(t, 1, paymentCli.captureCalls)
 
@@ -175,10 +196,14 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 			return &payment.CaptureResponse{PaymentId: testPaymentID}, nil
 		},
 	}
-
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
 	outbox.createEvent = func(ctx context.Context, event *storage.OutboxEvent) error {
-		if event.Topic == ConfirmCapacityTopic {
+		if event.Topic == PaymentCapturedTopic {
 			return fmt.Errorf("outbox write failed")
 		}
 		outbox.mu.Lock()
@@ -187,7 +212,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 		return nil
 	}
 
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	eventJSON := mustMarshalEvent(t, &ConfirmationEvent{
@@ -197,7 +222,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 
 	for i := 0; i <= maxRetries; i++ {
 		err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(testConsignmentID), eventJSON)
-		require.Error(t, err)
+		require.NoError(t, err)
 
 		events, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
 		require.NoError(t, err)
@@ -231,8 +256,13 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 			return &payment.RefundResponse{}, nil
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -248,10 +278,8 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 
 	assert.Equal(t, 1, paymentCli.refundCalls)
 	assert.Equal(t, 0, paymentCli.voidCalls)
-
-	topics := pendingTopics(t, outbox)
-	assert.Contains(t, topics, ReleaseCapacityTopic)
-	assert.Contains(t, topics, ConsignmentCancelledTopic)
+	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }
 
 func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
@@ -260,8 +288,13 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 			return nil, nil
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -277,20 +310,23 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 
 	assert.Equal(t, 1, paymentCli.voidCalls)
 	assert.Equal(t, 0, paymentCli.refundCalls)
-
-	topics := pendingTopics(t, outbox)
-	assert.Contains(t, topics, ReleaseCapacityTopic)
-	assert.Contains(t, topics, ConsignmentCancelledTopic)
+	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }
 
-func TestHandleFailedConfirmationEvent_VoidFails_StillReleasesAndCancels(t *testing.T) {
+func TestHandleFailedConfirmationEvent_VoidFails_StillCancels(t *testing.T) {
 	paymentCli := &mockPaymentClient{
 		void: func(ctx context.Context, in *payment.VoidRequest, opts ...grpc.CallOption) (*payment.VoidResponse, error) {
 			return nil, fmt.Errorf("void failed")
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -305,20 +341,23 @@ func TestHandleFailedConfirmationEvent_VoidFails_StillReleasesAndCancels(t *test
 	require.NoError(t, err)
 
 	assert.Equal(t, backoffAttempts+1, paymentCli.voidCalls)
-
-	topics := pendingTopics(t, outbox)
-	assert.Contains(t, topics, ReleaseCapacityTopic)
-	assert.Contains(t, topics, ConsignmentCancelledTopic)
+	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }
 
-func TestHandleFailedConfirmationEvent_RefundFails_StillReleasesAndCancels(t *testing.T) {
+func TestHandleFailedConfirmationEvent_RefundFails_StillCancels(t *testing.T) {
 	paymentCli := &mockPaymentClient{
 		refund: func(ctx context.Context, in *payment.RefundRequest, opts ...grpc.CallOption) (*payment.RefundResponse, error) {
 			return nil, fmt.Errorf("refund failed")
 		},
 	}
+	repo := &mockRepository{
+		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+			return nil
+		},
+	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -333,71 +372,6 @@ func TestHandleFailedConfirmationEvent_RefundFails_StillReleasesAndCancels(t *te
 	require.NoError(t, err)
 
 	assert.Equal(t, backoffAttempts+1, paymentCli.refundCalls)
-
-	topics := pendingTopics(t, outbox)
-	assert.Contains(t, topics, ReleaseCapacityTopic)
-	assert.Contains(t, topics, ConsignmentCancelledTopic)
-}
-
-// *** handleConsignmentStatusEvent ***
-
-func TestHandleConsignmentStatusEvent_Confirm(t *testing.T) {
-	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
-			return nil
-		},
-	}
-	mgr, err := New(nil, nil, nil, nil, nil, repo, Config{OutboxInterval: 10})
-	require.NoError(t, err)
-
-	event := &ConsignmentEvent{Action: CONFIRM, ConsignmentID: testConsignmentID}
-
-	err = mgr.handleConsignmentStatusEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, repo.updateStatusCalls)
-	assert.Equal(t, storage.StatusConfirmed, repo.lastStatus)
-}
-
-func TestHandleConsignmentStatusEvent_Cancel(t *testing.T) {
-	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
-			return nil
-		},
-	}
-	mgr, err := New(nil, nil, nil, nil, nil, repo, Config{OutboxInterval: 10})
-	require.NoError(t, err)
-
-	event := &ConsignmentEvent{Action: CANCEL, ConsignmentID: testConsignmentID}
-
-	err = mgr.handleConsignmentStatusEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
-	require.NoError(t, err)
-
 	assert.Equal(t, 1, repo.updateStatusCalls)
 	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
-}
-
-func TestHandleConsignmentStatusEvent_UpdateStatusFails_SchedulesRetry(t *testing.T) {
-	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
-			return fmt.Errorf("db unavailable")
-		},
-	}
-	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, nil, repo, Config{OutboxInterval: 10})
-	require.NoError(t, err)
-
-	event := &ConsignmentEvent{Action: CONFIRM, ConsignmentID: testConsignmentID}
-
-	err = mgr.handleConsignmentStatusEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
-	require.NoError(t, err)
-
-	pending, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
-	require.NoError(t, err)
-	require.Len(t, pending, 1)
-	assert.Equal(t, ConsignmentConfirmedTopic, pending[0].Topic)
-
-	var retryEvent ConsignmentEvent
-	require.NoError(t, json.Unmarshal(pending[0].Payload, &retryEvent))
-	assert.Equal(t, 1, retryEvent.RetryCount)
 }

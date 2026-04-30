@@ -54,12 +54,13 @@ func (c *Consumer) StartConsuming(ctx context.Context, topicHandlers EventHandle
 		return fmt.Errorf("failed to subscribe to topics (%v): %w", topics, err)
 	}
 
+	defer c.client.Close()
+
 	log.Info().Msg("consuming...")
 
 	for {
 		select {
 		case <-ctx.Done():
-			c.client.Close()
 			return nil
 		default:
 			message, err := c.client.ReadMessage(300 * time.Millisecond)

@@ -24,15 +24,12 @@ type EventAction int
 type EventType int
 
 const (
-	RELEASE EventAction = iota
-	CONFIRM
+	CONFIRM EventAction = iota
 	CANCEL
 )
 
 func (a EventAction) String() string {
 	switch a {
-	case RELEASE:
-		return "release"
 	case CONFIRM:
 		return "confirm"
 	case CANCEL:
@@ -49,8 +46,7 @@ type reservationInfo struct {
 	Weight             int    `json:"weight"`
 }
 
-type CapacityEvent struct {
-	Action          EventAction     `json:"action"`
+type PaymentCapturedEvent struct {
 	ReservationInfo reservationInfo `json:"reservation_info"`
 
 	// Only used for confirm events that end up in DLQ
@@ -59,10 +55,9 @@ type CapacityEvent struct {
 	PaymentID     string `json:"payment_id"`     // Refund payment
 }
 
-type ConsignmentEvent struct {
-	Action        EventAction `json:"action"`
-	ConsignmentID string      `json:"consignment_id"`
-	RetryCount    int         `json:"retry_count"`
+type ExpiredReservationEvent struct {
+	ConsignmentID string `json:"consignment_id"`
+	RetryCount    int    `json:"retry_count"`
 }
 
 type ConfirmationEvent struct {
@@ -109,10 +104,13 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 		}, newPaymentBackoff())
 		if captureErr != nil {
 			event.RetryCount++
-			if err := m.schedulePaymentAuthorisedEvent(ctx, &event); err != nil {
+			if err := m.publishPaymentAuthorised(ctx, &event); err != nil {
 				return fmt.Errorf("failed to schedule event retry: %w", err)
 			}
-			return fmt.Errorf("failed to capture payment: %w", captureErr)
+			log.Error().Err(captureErr).Str("consignment_id", event.ConsignmentID).Msg("payment capture failed — retry scheduled")
+
+			// Don't return error - we publish a new retry event
+			return nil
 		}
 
 		event.PaymentID = capResponse.PaymentId
@@ -120,8 +118,7 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 
 	event.PaymentCaptured = true
 
-	capacityEvent := &CapacityEvent{
-		Action: CONFIRM,
+	paymentEvent := &PaymentCapturedEvent{
 		ReservationInfo: reservationInfo{
 			Id:                 event.ReservationID,
 			VesselID:           event.VesselID,
@@ -132,17 +129,25 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 		PaymentID:     event.PaymentID,
 	}
 
-	if err := m.scheduleCapacityEvent(ctx, ConfirmCapacityTopic, event.ConsignmentID, capacityEvent); err != nil {
+	if err := m.publishPaymentCaptured(ctx, PaymentCapturedTopic, event.ConsignmentID, paymentEvent); err != nil {
 		event.RetryCount++
-		if err := m.schedulePaymentAuthorisedEvent(ctx, &event); err != nil {
-			return fmt.Errorf("failed to schedule event retry: %w", err)
+		if scheduleErr := m.publishPaymentAuthorised(ctx, &event); scheduleErr != nil {
+			return fmt.Errorf("failed to schedule event retry: %w", scheduleErr)
 		}
-		return fmt.Errorf("failed to write confirm capacity event to outbox: %w", err)
+		log.Error().Err(err).Str("consignment_id", event.ConsignmentID).Msg("outbox write failed — retry scheduled")
+
+		// Don't return error - we publish a new retry event
+		return nil
 	}
 
-	confirmedEvent := ConsignmentEvent{Action: CONFIRM, ConsignmentID: event.ConsignmentID}
-	if err := m.scheduleConsignmentStatusEvent(ctx, &confirmedEvent); err != nil {
-		log.Error().Str("consignment_id", event.ConsignmentID).Err(err).Msg("ALERT: failed to schedule confirmed status event")
+	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusConfirmed); updateErr != nil {
+		log.Error().
+			Str("consignment_id", event.ConsignmentID).
+			Err(updateErr).
+			Msg("failed to confirm consignment")
+
+			// TODO: consider this triggering retry of event and if we want that
+		return fmt.Errorf("failed to confirm consignment %s: %w", event.ConsignmentID, updateErr)
 	}
 
 	return nil
@@ -177,81 +182,34 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 		}
 	}
 
-	// Release reservation
-	releaseEvent := &CapacityEvent{
-		CacheCleared: event.CacheCleared,
-		Action:       RELEASE,
-		ReservationInfo: reservationInfo{
-			Id:                 event.ReservationID,
-			VesselID:           event.VesselID,
-			NumberOfContainers: event.Containers,
-			Weight:             event.Weight,
-		},
-	}
-	if err := m.scheduleCapacityEvent(ctx, ReleaseCapacityTopic, event.ReservationID, releaseEvent); err != nil {
-		log.Error().Str("consignment_id", event.ConsignmentID).Err(err).Msg("ALERT: failed to schedule release event — manual intervention required")
-	}
+	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
+		log.Error().
+			Str("consignment_id", event.ConsignmentID).
+			Err(updateErr).
+			Msg("failed to cancel consignment")
 
-	cancelEvent := ConsignmentEvent{Action: CANCEL, ConsignmentID: event.ConsignmentID}
-	if err := m.scheduleConsignmentStatusEvent(ctx, &cancelEvent); err != nil {
-		log.Error().Str("consignment_id", event.ConsignmentID).Err(err).Msg("ALERT: failed to schedule cancel event — consignment status requires manual update")
+		return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
 	}
 
 	return nil
 }
 
-func (m *Manager) handleConsignmentConfirmedEvent(ctx context.Context, key, value []byte) error {
-	return m.handleConsignmentStatusEvent(ctx, key, value)
-}
-
-func (m *Manager) handleConsignmentCancelledEvent(ctx context.Context, key, value []byte) error {
-	return m.handleConsignmentStatusEvent(ctx, key, value)
-}
-
-func (m *Manager) handleConsignmentStatusFailedEvent(ctx context.Context, key, value []byte) error {
-	log.Error().
-		Str("consignment_id", string(key)).
-		Msg("ALERT: consignment status update exhausted retries — manual intervention required")
-	return nil
-}
-
-func (m *Manager) handleConsignmentStatusEvent(ctx context.Context, key, value []byte) error {
-	var event ConsignmentEvent
+func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value []byte) error {
+	var event ExpiredReservationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
-		// TODO - Alert
-		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal confirmation event — manual intervention required")
+		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
-	var targetStatus storage.ConsignmentStatus
-	switch event.Action {
-	case CONFIRM:
-		targetStatus = storage.StatusConfirmed
-	case CANCEL:
-		targetStatus = storage.StatusCancelled
-	default:
-		return fmt.Errorf("unknown event action: %d", event.Action)
-	}
-
-	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, targetStatus); updateErr != nil {
-		log.Error().
-			Str("consignment_id", event.ConsignmentID).
-			Str("action", event.Action.String()).
-			Err(updateErr).
-			Msg("failed to update consignment status — scheduling retry")
-
-		event.RetryCount++
-		if err := m.scheduleConsignmentStatusEvent(ctx, &event); err != nil {
-			return fmt.Errorf("failed to schedule retry: %w", err)
-		}
-		return fmt.Errorf("failed to update consignment status %s: %w", event.ConsignmentID, updateErr)
-
+	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
+		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
+		return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
 	}
 
 	return nil
 }
 
-func (m *Manager) schedulePaymentAuthorisedEvent(ctx context.Context, event *ConfirmationEvent) error {
+func (m *Manager) publishPaymentAuthorised(ctx context.Context, event *ConfirmationEvent) error {
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
 		log.Error().
@@ -283,52 +241,14 @@ func (m *Manager) schedulePaymentAuthorisedEvent(ctx context.Context, event *Con
 	return nil
 }
 
-func (m *Manager) scheduleCapacityEvent(ctx context.Context, topic, key string, event *CapacityEvent) error {
+func (m *Manager) publishPaymentCaptured(ctx context.Context, topic, key string, event *PaymentCapturedEvent) error {
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("failed to marshal capacity event: %w", err)
+		return fmt.Errorf("failed to marshal payment captured event: %w", err)
 	}
 	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
 		Topic:   topic,
 		Key:     key,
 		Payload: eventJSON,
 	})
-}
-
-func (m *Manager) scheduleConsignmentStatusEvent(ctx context.Context, event *ConsignmentEvent) error {
-	eventJSON, err := json.Marshal(event)
-	if err != nil {
-		log.Error().
-			Str("consignment_id", event.ConsignmentID).
-			Str("action", event.Action.String()).
-			Err(err).
-			Msg("ALERT: failed to marshal consignment event — manual intervention required")
-		return fmt.Errorf("failed to marshal event: %w", err)
-	}
-
-	// Send to failed topic if retries are exhausted
-	topic := ConsignmentStatusFailedTopic
-	if event.RetryCount <= maxRetries {
-		switch event.Action {
-		case CONFIRM:
-			topic = ConsignmentConfirmedTopic
-		case CANCEL:
-			topic = ConsignmentCancelledTopic
-		}
-	}
-
-	if err := m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
-		Topic:   topic,
-		Key:     event.ConsignmentID,
-		Payload: eventJSON,
-	}); err != nil {
-		log.Warn().
-			Str("consignment_id", event.ConsignmentID).
-			Str("action", event.Action.String()).
-			Err(err).
-			Msg("failed to create outbox event")
-		return fmt.Errorf("failed to create outbox event: %w", err)
-	}
-
-	return nil
 }

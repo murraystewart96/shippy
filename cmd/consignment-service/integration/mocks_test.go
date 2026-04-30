@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
+	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 )
 
 type mockPaymentService struct {
@@ -63,4 +64,44 @@ func (m *mockPaymentService) reset() {
 	m.captureFunc = nil
 	m.refundFunc = nil
 	m.voidFunc = nil
+}
+
+type mockReservationService struct {
+	reservepb.UnimplementedReservationServiceServer
+
+	mu                  sync.Mutex
+	reserveCapacityCalls int
+	refreshCalls        int
+
+	reserveFunc func(ctx context.Context, req *reservepb.ReserveCapacityRequest) (*reservepb.ReservationResponse, error)
+	refreshFunc func(ctx context.Context, req *reservepb.CapacityActionRequest) (*reservepb.Empty, error)
+}
+
+func (m *mockReservationService) ReserveCapacity(ctx context.Context, req *reservepb.ReserveCapacityRequest) (*reservepb.ReservationResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reserveCapacityCalls++
+	if m.reserveFunc != nil {
+		return m.reserveFunc(ctx, req)
+	}
+	return &reservepb.ReservationResponse{Id: "test-reservation-id", VesselId: "test-vessel-id"}, nil
+}
+
+func (m *mockReservationService) RefreshReservation(ctx context.Context, req *reservepb.CapacityActionRequest) (*reservepb.Empty, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refreshCalls++
+	if m.refreshFunc != nil {
+		return m.refreshFunc(ctx, req)
+	}
+	return &reservepb.Empty{}, nil
+}
+
+func (m *mockReservationService) reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reserveCapacityCalls = 0
+	m.refreshCalls = 0
+	m.reserveFunc = nil
+	m.refreshFunc = nil
 }

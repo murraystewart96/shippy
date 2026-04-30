@@ -35,10 +35,14 @@ func newTestEvent(action EventAction) *CapacityEvent {
 func newOutboxWithStore() *mockOutbox {
 	o := &mockOutbox{data: make(map[string]*storage.OutboxEvent)}
 	o.createEvent = func(ctx context.Context, event *storage.OutboxEvent) error {
-		o.data[event.Id.String()] = event
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		o.data[event.Key] = event
 		return nil
 	}
 	o.getPendingEvents = func(ctx context.Context, lease time.Duration) ([]*storage.OutboxEvent, error) {
+		o.mu.Lock()
+		defer o.mu.Unlock()
 		pending := make([]*storage.OutboxEvent, 0)
 		for _, e := range o.data {
 			if e.PublishedAt == nil {
@@ -48,7 +52,6 @@ func newOutboxWithStore() *mockOutbox {
 		return pending, nil
 	}
 	o.markPublished = func(ctx context.Context, id uuid.UUID) error {
-
 		return nil
 	}
 	return o
@@ -85,7 +88,6 @@ func TestHandleReleaseReservationEvent_HappyPath(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.releaseCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.releaseCalls++
 		return nil, nil
 	}
 
@@ -134,7 +136,6 @@ func TestHandleCapacityEvent_RetryAfterClearingCache(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.releaseCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.releaseCalls++
 		if vesselCli.releaseCalls == 1 {
 			return nil, fmt.Errorf("release capacity failed")
 		}
@@ -144,9 +145,9 @@ func TestHandleCapacityEvent_RetryAfterClearingCache(t *testing.T) {
 	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vessel release failed")
+	require.NoError(t, err)
 	assert.Equal(t, 1, cache.deleteDataCalls)
+	assert.Equal(t, 1, vesselCli.releaseCalls)
 
 	pending, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
 	require.NoError(t, err)
@@ -179,14 +180,13 @@ func TestHandleCapacityEvent_RetryAfterNotClearingCache(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.releaseCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.releaseCalls++
 		return nil, nil
 	}
 
 	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, 1, cache.deleteDataCalls)
 
 	pending, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
@@ -224,7 +224,6 @@ func TestHandleCapacityEvent_IsIdempotent(t *testing.T) {
 	vesselCli.releaseCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
 		vesselCli.mu.Lock()
 		defer vesselCli.mu.Unlock()
-		vesselCli.releaseCalls++
 		return nil, nil
 	}
 
@@ -276,7 +275,6 @@ func TestHandleCapacityEvent_CacheClearedSkipsDelete(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.releaseCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.releaseCalls++
 		return nil, nil
 	}
 
@@ -303,7 +301,6 @@ func TestHandleCapacityEvent_DeleteIDFailureIsNonFatal(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.releaseCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.releaseCalls++
 		return nil, nil
 	}
 
@@ -337,7 +334,7 @@ func TestHandleCapacityEvent_ScheduleRetryFailsAfterDeleteError(t *testing.T) {
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to schedule event retry")
+	assert.Contains(t, err.Error(), "failed to schedule capacity retry")
 }
 
 func TestHandleConfirmReservationEvent(t *testing.T) {
@@ -355,7 +352,6 @@ func TestHandleConfirmReservationEvent(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.confirmCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.confirmCalls++
 		return &vesselpb.Empty{}, nil
 	}
 
@@ -385,15 +381,13 @@ func TestHandleCapacityEvent_ConfirmVesselFailureSchedulesRetry(t *testing.T) {
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.confirmCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.confirmCalls++
 		return nil, fmt.Errorf("confirm capacity failed")
 	}
 
 	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vessel confirm failed")
+	assert.NoError(t, err)
 	assert.Equal(t, 1, vesselCli.confirmCalls)
 	assert.Equal(t, 0, vesselCli.releaseCalls)
 
@@ -409,7 +403,7 @@ func TestHandleCapacityEvent_ConfirmVesselFailureSchedulesRetry(t *testing.T) {
 	assert.True(t, retryEvent.CacheCleared)
 }
 
-func TestHandleCapacityEvent_ExhaustRetries_NotifyConfirmConsignmentDLQ(t *testing.T) {
+func TestHandleCapacityEvent_ExhaustRetries_Release_And_NotifyConfirmConsignmentDLQ(t *testing.T) {
 	event := newTestEvent(CONFIRM)
 
 	cache := &mockCache{
@@ -430,9 +424,12 @@ func TestHandleCapacityEvent_ExhaustRetries_NotifyConfirmConsignmentDLQ(t *testi
 		return nil
 	}
 
-	vesselCli := &mockVesselClient{}
+	vesselCli := &mockVesselClient{
+		releaseCapacity: func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
+			return nil, nil
+		},
+	}
 	vesselCli.confirmCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
-		vesselCli.confirmCalls++
 		return nil, fmt.Errorf("confirm capacity failed")
 	}
 
@@ -443,8 +440,7 @@ func TestHandleCapacityEvent_ExhaustRetries_NotifyConfirmConsignmentDLQ(t *testi
 	// Retry event over max retries
 	for i := 0; i <= maxRetries; i++ {
 		err := mgr.handleCapacityEvent(t.Context(), []byte(event.ConsignmentID), eventJSON)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "confirm capacity failed")
+		require.NoError(t, err)
 
 		assert.Equal(t, 1, cache.deleteDataCalls)
 		assert.Equal(t, i+1, vesselCli.confirmCalls)
@@ -457,17 +453,27 @@ func TestHandleCapacityEvent_ExhaustRetries_NotifyConfirmConsignmentDLQ(t *testi
 		eventJSON = events[0].Payload
 	}
 
-	// Process pending capacity DLQ event
+	// Process pending capacity failed event
 	events, err := outbox.GetPendingEvents(t.Context(), 10)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 
 	pendingDLQEvent := events[0]
-	assert.Equal(t, pendingDLQEvent.Topic, CapacityDLQTopic)
+	assert.Equal(t, CapacityFailedTopic, pendingDLQEvent.Topic)
 
-	err = mgr.handleCapacityDLQEvent(t.Context(), []byte(pendingDLQEvent.Key), pendingDLQEvent.Payload)
+	err = mgr.handleFailedCapacityEvent(t.Context(), []byte(pendingDLQEvent.Key), pendingDLQEvent.Payload)
 	require.NoError(t, err)
 
-	// Assert confirm consignment DLQ event was published
-	assert.Equal(t, 1, producer.produceCalls)
+	events, err = outbox.GetPendingEvents(t.Context(), 10)
+	require.NoError(t, err)
+
+	var confirmFailed *storage.OutboxEvent
+	for _, e := range events {
+		if e.Topic == ConsignmentConfirmationFailedTopic {
+			confirmFailed = e
+			break
+		}
+	}
+	require.NotNil(t, confirmFailed, "expected a ConsignmentConfirmationFailed outbox event")
+	assert.Equal(t, 1, vesselCli.releaseCalls)
 }
