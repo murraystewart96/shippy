@@ -55,7 +55,7 @@ type PaymentCapturedEvent struct {
 	PaymentID     string `json:"payment_id"`     // Refund payment
 }
 
-type ExpiredReservationEvent struct {
+type ReservationEvent struct {
 	ConsignmentID string `json:"consignment_id"`
 	RetryCount    int    `json:"retry_count"`
 }
@@ -140,14 +140,14 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 		return nil
 	}
 
-	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusConfirmed); updateErr != nil {
+	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusConfirmationPending); updateErr != nil {
 		log.Error().
 			Str("consignment_id", event.ConsignmentID).
 			Err(updateErr).
-			Msg("failed to confirm consignment")
+			Msg("failed to update consignment status to confirmation pending")
 
 			// TODO: consider this triggering retry of event and if we want that
-		return fmt.Errorf("failed to confirm consignment %s: %w", event.ConsignmentID, updateErr)
+		return fmt.Errorf("failed to update consignment status to confirmation pending %s: %w", event.ConsignmentID, updateErr)
 	}
 
 	return nil
@@ -195,7 +195,7 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 }
 
 func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value []byte) error {
-	var event ExpiredReservationEvent
+	var event ReservationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
@@ -204,6 +204,22 @@ func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value 
 	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
 		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
 		return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
+	}
+
+	return nil
+}
+
+// TODO: merge with function above
+func (m *Manager) handleReservationConfirmedEvent(ctx context.Context, key, value []byte) error {
+	var event ReservationEvent
+	if err := json.Unmarshal(value, &event); err != nil {
+		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
+		return fmt.Errorf("failed to unmarshal event: %w", err)
+	}
+
+	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusConfirmed); updateErr != nil {
+		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
+		return fmt.Errorf("failed to confirm consignment %s: %w", event.ConsignmentID, updateErr)
 	}
 
 	return nil

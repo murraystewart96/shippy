@@ -71,11 +71,11 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 
 	assert.Equal(t, 1, paymentCli.captureCalls)
 
-	// ConsignmentConfirmed event only exists in happy path
+	// PaymentCaptured event only exists in happy path
 	topics := pendingTopics(t, outbox)
 	assert.Contains(t, topics, PaymentCapturedTopic)
 	assert.Equal(t, 1, repo.updateStatusCalls)
-	assert.Equal(t, storage.StatusConfirmed, repo.lastStatus)
+	assert.Equal(t, storage.StatusConfirmationPending, repo.lastStatus)
 }
 
 func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testing.T) {
@@ -106,11 +106,11 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 
 	assert.Equal(t, 0, paymentCli.captureCalls)
 
-	// ConsignmentConfirmed event only exists in happy path
+	// PaymentCaptured event only exists in happy path
 	topics := pendingTopics(t, outbox)
 	assert.Contains(t, topics, PaymentCapturedTopic)
 	assert.Equal(t, 1, repo.updateStatusCalls)
-	assert.Equal(t, storage.StatusConfirmed, repo.lastStatus)
+	assert.Equal(t, storage.StatusConfirmationPending, repo.lastStatus)
 }
 
 func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {

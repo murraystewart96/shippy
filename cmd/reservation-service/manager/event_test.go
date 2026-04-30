@@ -349,13 +349,14 @@ func TestHandleConfirmReservationEvent(t *testing.T) {
 		cache.deleteDataCalls++
 		return true, nil
 	}
+	outbox := newOutboxWithStore()
 
 	vesselCli := &mockVesselClient{}
 	vesselCli.confirmCapacity = func(ctx context.Context, in *vesselpb.CapacityRequest, opts ...grpc.CallOption) (*vesselpb.Empty, error) {
 		return &vesselpb.Empty{}, nil
 	}
 
-	mgr := newManager(t, vesselCli, cache, nil, nil)
+	mgr := newManager(t, vesselCli, cache, outbox, nil)
 
 	err := mgr.handleCapacityEvent(t.Context(), []byte(event.ReservationInfo.Id.String()), mustMarshalEvent(t, event))
 	assert.NoError(t, err)

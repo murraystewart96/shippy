@@ -52,6 +52,11 @@ type CapacityEvent struct {
 	PaymentID     string `json:"payment_id"`
 }
 
+type reservationConfirmedPayload struct {
+	ReservationID string `json:"reservation_id"`
+	ConsignmentID string `json:"consignment_id"`
+}
+
 // reservationExpiredPayload is the wire format for reservation.expired.
 // Both RS and CS consume this topic via separate consumer groups.
 type reservationExpiredPayload struct {
@@ -76,6 +81,21 @@ func (m *Manager) scheduleReservationExpired(ctx context.Context, r *storage.Res
 	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
 		Topic:   ReservationExpiredTopic,
 		Key:     r.Id.String(),
+		Payload: payload,
+	})
+}
+
+func (m *Manager) scheduleReservationConfirmed(ctx context.Context, event *CapacityEvent) error {
+	payload, err := json.Marshal(reservationConfirmedPayload{
+		ReservationID: event.ReservationInfo.Id.String(),
+		ConsignmentID: event.ConsignmentID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal reservation confirmed event: %w", err)
+	}
+	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
+		Topic:   ReservationConfirmedTopic,
+		Key:     event.ConsignmentID,
 		Payload: payload,
 	})
 }
@@ -215,6 +235,16 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 
 	if _, err := m.cache.DeleteID(ctx, reservationID); err != nil {
 		log.Warn().Str("reservation_id", reservationID).Err(err).Msg("failed to delete reservation id key — will expire naturally")
+	}
+
+	if event.Action == CONFIRM {
+		if err := m.scheduleReservationConfirmed(ctx, &event); err != nil {
+			log.Error().
+				Str("reservation_id", reservationID).
+				Str("consignment_id", event.ConsignmentID).
+				Err(err).
+				Msg("ALERT: failed to schedule reservation confirmed event — manual intervention required")
+		}
 	}
 
 	return nil

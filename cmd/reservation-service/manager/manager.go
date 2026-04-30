@@ -27,7 +27,7 @@ const (
 
 	// Outbound — published by RS, consumed by CS.
 	ConsignmentConfirmationFailedTopic = "consignment.confirmation.failed"
-	ConsignmentCancelledTopic          = "consignment.cancelled"
+	ReservationConfirmedTopic          = "reservation.confirmed"
 
 	maxRetries = 3
 )
