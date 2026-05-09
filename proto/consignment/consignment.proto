@@ -4,19 +4,13 @@ package consignment;
 
 option go_package = "github.com/murraystewart96/shippy/proto/consignment";
 
-enum ConsignmentStatus {
-  PENDING = 0;
-  CONFIRMED = 1;
-  CANCELLED = 2;
-}
-
 message Consignment {
   string id = 1;
   string description = 2;
   int32 weight = 3;
   repeated Container containers = 4;
   string vessel_id = 5;
-  ConsignmentStatus status = 6;
+  string status = 6;
 }
 
 message Container {

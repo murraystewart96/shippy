@@ -152,6 +152,7 @@ func (m *Manager) handlePaymentCapturedEvent(ctx context.Context, key, value []b
 	return m.processCapacityEvent(ctx, event)
 }
 
+// TODO: review why we needed the retry topic
 func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) error {
 	var event CapacityEvent
 	if err := json.Unmarshal(value, &event); err != nil {
@@ -238,6 +239,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 	}
 
 	if event.Action == CONFIRM {
+		// TODO: add retry
 		if err := m.scheduleReservationConfirmed(ctx, &event); err != nil {
 			log.Error().
 				Str("reservation_id", reservationID).
@@ -269,7 +271,7 @@ func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []by
 			Msg("ALERT: release capacity exhausted retries — vessel capacity may be understated, manual reconciliation required")
 
 	case CONFIRM:
-		// ConfirmCapacity exhausted retries — release directly and notify CS to refund and cancel.
+		// ConfirmCapacity exhausted retries — release capacity and notify CS to refund and cancel.
 		releaseEvent := CapacityEvent{
 			Action:          RELEASE,
 			ReservationInfo: event.ReservationInfo,
@@ -286,6 +288,8 @@ func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []by
 				Str("payment_id", event.PaymentID).
 				Err(err).
 				Msg("ALERT: failed to notify consignment of confirmation failure — manual refund and cancellation required")
+
+			return fmt.Errorf("failed to publish capacity confirmation failure event: %w", err)
 		}
 
 	default:
@@ -314,7 +318,7 @@ func (m *Manager) notifyConfirmationFailed(ctx context.Context, event *CapacityE
 		return fmt.Errorf("failed to marshal failed confirmation event: %w", err)
 	}
 	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
-		Topic:   ConsignmentConfirmationFailedTopic,
+		Topic:   ConsignmentConfirmationFailedTopic, // TODO: maybe this should be reservation.confirmation.failed (that is the event that happened)
 		Key:     event.ConsignmentID,
 		Payload: payloadJSON,
 	})

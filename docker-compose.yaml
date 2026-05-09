@@ -30,7 +30,7 @@ services:
       payment:
         condition: service_started
       kafka:
-        condition: service_started
+        condition: service_healthy
     environment:
       GRPC_ADDRESS: ":50051"
       DB_HOST: "datastore"
@@ -52,7 +52,8 @@ services:
       DB_HOST: "datastore"
       DB_PORT: "27017"
     depends_on:
-      - datastore
+      datastore:
+        condition: service_healthy
 
   payment:
     build:
@@ -75,8 +76,8 @@ services:
       DB_HOST: "database"
       JWT_SECRET: "secret"
     depends_on:
-      - database
-      - nats
+      database:
+        condition: service_healthy
 
   email:
     build:
@@ -101,7 +102,7 @@ services:
       SHIPPY_ADDRESS: ":50051"
       SHIPPY_VESSEL_SERVICE_ADDRESS: "vessel:50051"
       SHIPPY_REDIS_ADDR: "reservation-redis:6379"
-      SHIPPY_REDIS_RESERVATION_TTL: "60"        # 1 minute — short for testing
+      SHIPPY_REDIS_RESERVATION_TTL: "180"        # 3 minute — short for testing
       SHIPPY_REDIS_RESERVATION_DATA_TTL: "300"  # 5 minutes
       SHIPPY_DATABASE_HOST: "reservation-db"
       SHIPPY_DATABASE_PORT: "5432"
@@ -116,10 +117,14 @@ services:
       SHIPPY_MANAGER_CLEANUP_INTERVAL: "30"  # 30 seconds — short for testing
       SHIPPY_MANAGER_OUTBOX_INTERVAL: "10"
     depends_on:
-      - vessel
-      - reservation-db
-      - reservation-redis
-      - kafka
+      vessel:
+        condition: service_started
+      reservation-db:
+        condition: service_healthy
+      reservation-redis:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   reservation-db:
     image: postgres:alpine
@@ -131,6 +136,11 @@ services:
       - 5433:5432
     volumes:
       - ./cmd/reservation-service/database/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reservation -d reservation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   reservation-redis:
     image: redis:alpine
@@ -154,6 +164,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   # Message broker
   nats:
@@ -190,6 +205,11 @@ services:
       - 5432:5432
     volumes:
       - ./cmd/user-service/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d shippy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # Commands
   consignment-cli:

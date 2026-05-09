@@ -11,7 +11,7 @@ type ConsignmentRepository interface {
 	Create(ctx context.Context, consignment *Consignment) error
 	GetByID(ctx context.Context, id string) (*Consignment, error)
 	GetAll(ctx context.Context) ([]*Consignment, error)
-	UpdateStatus(ctx context.Context, id string, status ConsignmentStatus) error
+	UpdateStatus(ctx context.Context, id string, status string) error
 }
 
 type OutboxRepository interface {

@@ -20,25 +20,6 @@ func newPaymentBackoff() backoff.BackOff {
 	), backoffAttempts)
 }
 
-type EventAction int
-type EventType int
-
-const (
-	CONFIRM EventAction = iota
-	CANCEL
-)
-
-func (a EventAction) String() string {
-	switch a {
-	case CONFIRM:
-		return "confirm"
-	case CANCEL:
-		return "cancel"
-	default:
-		return "unknown"
-	}
-}
-
 type reservationInfo struct {
 	Id                 string `json:"id"`
 	VesselID           string `json:"vessel_id"`
@@ -51,7 +32,7 @@ type PaymentCapturedEvent struct {
 
 	// Only used for confirm events that end up in DLQ
 	CacheCleared  bool   `json:"cache_cleared"`
-	ConsignmentID string `json:"consignment_id"` // Marked as cancelled
+	ConsignmentID string `json:"consignment_id"` // Marks as cancelled
 	PaymentID     string `json:"payment_id"`     // Refund payment
 }
 
@@ -195,11 +176,16 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 }
 
 func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value []byte) error {
+	// TODO: review that we don't need to refund payments from expired reservations - if payment goes through and
+	// reservation expires then we end up in a situation with cancelled consignment that needs refunded.
+	// only happens if broker goes down and confirmation event itsnt published. known limitation
 	var event ReservationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
+
+	// TODO: only cancel if current status is pending or not confirmation pending
 
 	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
 		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")

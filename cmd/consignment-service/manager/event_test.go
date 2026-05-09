@@ -49,7 +49,7 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -85,7 +85,7 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -120,7 +120,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -151,7 +151,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentCapturedEventFails_SchedulesRetry(t
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -197,7 +197,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -257,7 +257,7 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -289,7 +289,7 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -321,7 +321,7 @@ func TestHandleFailedConfirmationEvent_VoidFails_StillCancels(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}
@@ -352,7 +352,7 @@ func TestHandleFailedConfirmationEvent_RefundFails_StillCancels(t *testing.T) {
 		},
 	}
 	repo := &mockRepository{
-		updateStatus: func(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+		updateStatus: func(ctx context.Context, id string, status string) error {
 			return nil
 		},
 	}

@@ -242,7 +242,7 @@ func TestHandleCapacityEvent_IsIdempotent(t *testing.T) {
 	wg.Wait()
 
 	// Duplicate events should only be processed once
-	// Here this means one release call to the vessel service
+	// This means one release call to the vessel service
 	assert.Equal(t, 3, cache.deleteDataCalls)
 	assert.Equal(t, 1, vesselCli.releaseCalls)
 }

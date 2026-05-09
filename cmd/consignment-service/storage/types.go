@@ -6,23 +6,21 @@ import (
 	"github.com/google/uuid"
 )
 
-type ConsignmentStatus string
-
 const (
-	StatusPending             ConsignmentStatus = "pending"
-	StatusConfirmed           ConsignmentStatus = "confirmed"
-	StatusCancelled           ConsignmentStatus = "cancelled"
-	StatusConfirmationPending ConsignmentStatus = "confirmation_pending"
+	StatusPending             = "pending"
+	StatusConfirmed           = "confirmed"
+	StatusCancelled           = "cancelled"
+	StatusConfirmationPending = "confirmation_pending"
 )
 
 type Consignment struct {
-	ID            string            `bson:"_id"            json:"id"`
-	Weight        int32             `bson:"weight"         json:"weight"`
-	Description   string            `bson:"description"    json:"description"`
-	Containers    Containers        `bson:"containers"     json:"containers"`
-	VesselID      string            `bson:"vessel_id"      json:"vessel_id"`
-	ReservationID string            `bson:"reservation_id" json:"reservation_id"`
-	Status        ConsignmentStatus `bson:"status"         json:"status"`
+	ID            string     `bson:"_id"            json:"id"`
+	Weight        int32      `bson:"weight"         json:"weight"`
+	Description   string     `bson:"description"    json:"description"`
+	Containers    Containers `bson:"containers"     json:"containers"`
+	VesselID      string     `bson:"vessel_id"      json:"vessel_id"`
+	ReservationID string     `bson:"reservation_id" json:"reservation_id"`
+	Status        string     `bson:"status"         json:"status"`
 }
 
 type Container struct {

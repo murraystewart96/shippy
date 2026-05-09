@@ -17,11 +17,11 @@ type mockRepository struct {
 	create       func(ctx context.Context, consignment *storage.Consignment) error
 	getByID      func(ctx context.Context, id string) (*storage.Consignment, error)
 	getAll       func(ctx context.Context) ([]*storage.Consignment, error)
-	updateStatus func(ctx context.Context, id string, status storage.ConsignmentStatus) error
+	updateStatus func(ctx context.Context, id string, status string) error
 
 	mu                sync.Mutex
 	updateStatusCalls int
-	lastStatus        storage.ConsignmentStatus
+	lastStatus        string
 }
 
 func (m *mockRepository) Create(ctx context.Context, consignment *storage.Consignment) error {
@@ -36,14 +36,13 @@ func (m *mockRepository) GetAll(ctx context.Context) ([]*storage.Consignment, er
 	return m.getAll(ctx)
 }
 
-func (m *mockRepository) UpdateStatus(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+func (m *mockRepository) UpdateStatus(ctx context.Context, id string, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.updateStatusCalls++
 	m.lastStatus = status
 	return m.updateStatus(ctx, id, status)
 }
-
 
 // mockOutbox
 

@@ -92,6 +92,16 @@ func run() error {
 
 	paymentCli := paymentpb.NewPaymentServiceClient(paymentConn)
 
+	if err := kafka.EnsureTopics(context.Background(), kafkaAddr, []kafka.TopicConfig{
+		{Name: manager.ConsignmentPaymentAuthorisedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReservationExpiredTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReservationConfirmedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.PaymentCapturedTopic, NumPartitions: 1, ReplicationFactor: 1},
+	}); err != nil {
+		return fmt.Errorf("failed to ensure kafka topics: %w", err)
+	}
+
 	producer, err := kafka.NewProducer(&kafka.ProducerConfig{
 		BootstrapServers: kafkaAddr,
 		Acks:             "all",
@@ -116,6 +126,7 @@ func run() error {
 			manager.ConsignmentPaymentAuthorisedTopic,
 			manager.ConsignmentConfirmationFailedTopic,
 			manager.ReservationExpiredTopic,
+			manager.ReservationConfirmedTopic,
 		},
 		outbox,
 		paymentCli,

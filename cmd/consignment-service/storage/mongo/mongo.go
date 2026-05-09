@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
 	"github.com/rs/zerolog/log"
@@ -42,14 +41,13 @@ func CreateClient(ctx context.Context, uri string, retry int32) (*mongo.Client, 
 }
 
 func (repo *Mongo) Create(ctx context.Context, consignment *storage.Consignment) error {
-	consignment.ID = uuid.New().String()
 	consignment.Status = storage.StatusPending
 	log.Info().Msgf("Creating consignment: %v", *consignment)
 	_, err := repo.collection.InsertOne(ctx, consignment)
 	return err
 }
 
-func (repo *Mongo) UpdateStatus(ctx context.Context, id string, status storage.ConsignmentStatus) error {
+func (repo *Mongo) UpdateStatus(ctx context.Context, id string, status string) error {
 	result, err := repo.collection.UpdateOne(ctx,
 		bson.M{"_id": id},
 		bson.M{"$set": bson.M{"status": status}},
@@ -105,7 +103,7 @@ func MarshalConsignment(consignment *pb.Consignment) *storage.Consignment {
 		Description: consignment.Description,
 		Containers:  marshalContainerCollection(consignment.Containers),
 		VesselID:    consignment.VesselId,
-		Status:      marshalStatus(consignment.Status),
+		Status:      consignment.Status,
 	}
 }
 
@@ -116,7 +114,7 @@ func UnmarshalConsignment(consignment *storage.Consignment) *pb.Consignment {
 		Description: consignment.Description,
 		Containers:  unmarshalContainerCollection(consignment.Containers),
 		VesselId:    consignment.VesselID,
-		Status:      unmarshalStatus(consignment.Status),
+		Status:      consignment.Status,
 	}
 }
 
@@ -150,26 +148,4 @@ func unmarshalContainerCollection(containers storage.Containers) []*pb.Container
 		}
 	}
 	return collection
-}
-
-func marshalStatus(s pb.ConsignmentStatus) storage.ConsignmentStatus {
-	switch s {
-	case pb.ConsignmentStatus_CONFIRMED:
-		return storage.StatusConfirmed
-	case pb.ConsignmentStatus_CANCELLED:
-		return storage.StatusCancelled
-	default:
-		return storage.StatusPending
-	}
-}
-
-func unmarshalStatus(s storage.ConsignmentStatus) pb.ConsignmentStatus {
-	switch s {
-	case storage.StatusConfirmed:
-		return pb.ConsignmentStatus_CONFIRMED
-	case storage.StatusCancelled:
-		return pb.ConsignmentStatus_CANCELLED
-	default:
-		return pb.ConsignmentStatus_PENDING
-	}
 }

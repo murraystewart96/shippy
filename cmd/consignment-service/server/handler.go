@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/consignment-service/manager"
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
@@ -40,8 +41,10 @@ func NewHandler(
 }
 
 func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*pb.Response, error) {
+	consignmentID := uuid.New()
+
 	reservationResponse, err := h.reservationCli.ReserveCapacity(ctx, &reservepb.ReserveCapacityRequest{
-		ConsignmentId:      req.Id,
+		ConsignmentId:      consignmentID.String(),
 		Weight:             req.Weight,
 		NumberOfContainers: int32(len(req.Containers)),
 	})
@@ -53,7 +56,9 @@ func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*
 	req.VesselId = reservationResponse.VesselId
 
 	consignment := mongo.MarshalConsignment(req)
+	consignment.ID = consignmentID.String()
 	consignment.ReservationID = reservationResponse.Id
+
 	if err := h.repository.Create(ctx, consignment); err != nil {
 		log.Printf("failed to create consignment: %v\n", err)
 		return nil, status.Error(codes.Internal, "failed to create consignment")
@@ -73,7 +78,7 @@ func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 	if err != nil {
 		st, _ := status.FromError(err)
 		if st.Code() == codes.NotFound {
-			return nil, status.Error(codes.FailedPrecondition, "reservation has expired")
+			return nil, status.Error(codes.FailedPrecondition, "reservation no longer exists")
 		}
 		log.Printf("failed to refresh reservation %s: %v", consignment.ReservationID, err)
 		return nil, status.Error(codes.Internal, "failed to refresh reservation")
@@ -92,10 +97,20 @@ func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 	}
 
 	if err := h.scheduleConsignmentConfirmation(ctx, paymentResponse.AuthId, consignment); err != nil {
+		//TODO: maybe we should do this - cancelConsignment(ctx, consignment.ID, h.repository)
+
 		return nil, fmt.Errorf("failed to confirm consignment: %w", err)
 	}
 
 	return &pb.ConfirmResponse{Confirmed: true}, nil
+}
+
+func (h *Handler) GetConsignments(ctx context.Context, _ *pb.GetRequest) (*pb.Response, error) {
+	consignments, err := h.repository.GetAll(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get consignments")
+	}
+	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
 }
 
 func (h *Handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
@@ -131,6 +146,7 @@ func (h *Handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAu
 }
 
 func cancelConsignment(ctx context.Context, id string, repo storage.ConsignmentRepository) {
+	// TODO: MAYBE we should cancel the reservation here instead of purely relying on the expiration
 	if err := repo.UpdateStatus(ctx, id, storage.StatusCancelled); err != nil {
 		log.Printf("ALERT: failed to cancel consignment %s: %v", id, err)
 	}

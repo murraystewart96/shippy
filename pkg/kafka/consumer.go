@@ -71,7 +71,7 @@ func (c *Consumer) StartConsuming(ctx context.Context, topicHandlers EventHandle
 				continue
 			}
 
-			log.Info().Msg("consuming event...")
+			log.Info().Str("topic", *message.TopicPartition.Topic).Msg("consuming event...")
 
 			if handler, ok := topicHandlers[*message.TopicPartition.Topic]; ok {
 				if err := handler(ctx, message.Key, message.Value); err != nil {

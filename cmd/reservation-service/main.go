@@ -47,9 +47,11 @@ func run() error {
 	if err := kafka.EnsureTopics(context.Background(), cfg.KafkaProducer.BootstrapServers, []kafka.TopicConfig{
 		{Name: manager.PaymentCapturedTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ReleaseCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ConfirmCapacityTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.CapacityFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ReservationExpiredTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReservationConfirmedTopic, NumPartitions: 1, ReplicationFactor: 1},
 	}); err != nil {
 		return err
 	}
@@ -74,6 +76,7 @@ func run() error {
 	mgr, err := manager.New(vesselCli, producer, consumer, []string{
 		manager.PaymentCapturedTopic,
 		manager.ReleaseCapacityTopic,
+		manager.ConfirmCapacityTopic,
 		manager.ReservationExpiredTopic,
 		manager.CapacityFailedTopic,
 	}, cache, db, cfg.Manager)
