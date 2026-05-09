@@ -77,6 +77,7 @@ func run() error {
 
 	repository := mongo.New(mongoCli.Database("shippy").Collection("consignments"))
 	outbox := mongo.NewOutbox(mongoCli.Database("shippy").Collection("outbox"))
+	store := mongo.NewStore(mongoCli)
 
 	reservationConn, err := grpc.NewClient(reservationServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -129,6 +130,7 @@ func run() error {
 			manager.ReservationConfirmedTopic,
 		},
 		outbox,
+		store,
 		paymentCli,
 		repository,
 		manager.Config{OutboxInterval: outboxInterval},

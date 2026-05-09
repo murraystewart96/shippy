@@ -54,7 +54,7 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -74,7 +74,7 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 	// PaymentCaptured event only exists in happy path
 	topics := pendingTopics(t, outbox)
 	assert.Contains(t, topics, PaymentCapturedTopic)
-	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, 1, repo.updateCalls)
 	assert.Equal(t, storage.StatusConfirmationPending, repo.lastStatus)
 }
 
@@ -90,7 +90,7 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -109,7 +109,7 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 	// PaymentCaptured event only exists in happy path
 	topics := pendingTopics(t, outbox)
 	assert.Contains(t, topics, PaymentCapturedTopic)
-	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, 1, repo.updateCalls)
 	assert.Equal(t, storage.StatusConfirmationPending, repo.lastStatus)
 }
 
@@ -125,7 +125,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -166,7 +166,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentCapturedEventFails_SchedulesRetry(t
 		return nil
 	}
 
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -212,7 +212,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 		return nil
 	}
 
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	eventJSON := mustMarshalEvent(t, &ConfirmationEvent{
@@ -240,7 +240,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 }
 
 func TestHandlePaymentAuthorisedEvent_InvalidJSON(t *testing.T) {
-	mgr, err := New(nil, nil, nil, nil, nil, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, nil, nil, nil, nil, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte("key"), []byte("not valid json"))
@@ -262,7 +262,7 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -278,7 +278,7 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 
 	assert.Equal(t, 1, paymentCli.refundCalls)
 	assert.Equal(t, 0, paymentCli.voidCalls)
-	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, 1, repo.updateCalls)
 	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }
 
@@ -294,7 +294,7 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -310,7 +310,7 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 
 	assert.Equal(t, 1, paymentCli.voidCalls)
 	assert.Equal(t, 0, paymentCli.refundCalls)
-	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, 1, repo.updateCalls)
 	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }
 
@@ -326,7 +326,7 @@ func TestHandleFailedConfirmationEvent_VoidFails_StillCancels(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -341,7 +341,7 @@ func TestHandleFailedConfirmationEvent_VoidFails_StillCancels(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, backoffAttempts+1, paymentCli.voidCalls)
-	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, 1, repo.updateCalls)
 	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }
 
@@ -357,7 +357,7 @@ func TestHandleFailedConfirmationEvent_RefundFails_StillCancels(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -372,6 +372,6 @@ func TestHandleFailedConfirmationEvent_RefundFails_StillCancels(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, backoffAttempts+1, paymentCli.refundCalls)
-	assert.Equal(t, 1, repo.updateStatusCalls)
+	assert.Equal(t, 1, repo.updateCalls)
 	assert.Equal(t, storage.StatusCancelled, repo.lastStatus)
 }

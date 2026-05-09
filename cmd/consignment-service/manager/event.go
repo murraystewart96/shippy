@@ -110,25 +110,25 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 		PaymentID:     event.PaymentID,
 	}
 
-	if err := m.publishPaymentCaptured(ctx, PaymentCapturedTopic, event.ConsignmentID, paymentEvent); err != nil {
+	paymentID := event.PaymentID
+
+	// TODO: refactor into helper
+	status := storage.StatusConfirmationPending
+	if txErr := m.transactor.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := m.publishPaymentCaptured(txCtx, PaymentCapturedTopic, event.ConsignmentID, paymentEvent); err != nil {
+			return err
+		}
+		return m.repository.Update(txCtx, event.ConsignmentID, storage.ConsignmentUpdate{
+			Status:    &status,
+			PaymentID: &paymentID,
+		})
+	}); txErr != nil {
 		event.RetryCount++
 		if scheduleErr := m.publishPaymentAuthorised(ctx, &event); scheduleErr != nil {
 			return fmt.Errorf("failed to schedule event retry: %w", scheduleErr)
 		}
-		log.Error().Err(err).Str("consignment_id", event.ConsignmentID).Msg("outbox write failed — retry scheduled")
-
-		// Don't return error - we publish a new retry event
+		log.Error().Err(txErr).Str("consignment_id", event.ConsignmentID).Msg("payment captured tx failed — retry scheduled")
 		return nil
-	}
-
-	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusConfirmationPending); updateErr != nil {
-		log.Error().
-			Str("consignment_id", event.ConsignmentID).
-			Err(updateErr).
-			Msg("failed to update consignment status to confirmation pending")
-
-			// TODO: consider this triggering retry of event and if we want that
-		return fmt.Errorf("failed to update consignment status to confirmation pending %s: %w", event.ConsignmentID, updateErr)
 	}
 
 	return nil
@@ -176,20 +176,38 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 }
 
 func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value []byte) error {
-	// TODO: review that we don't need to refund payments from expired reservations - if payment goes through and
-	// reservation expires then we end up in a situation with cancelled consignment that needs refunded.
-	// only happens if broker goes down and confirmation event itsnt published. known limitation
 	var event ReservationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
-	// TODO: only cancel if current status is pending or not confirmation pending
+	consignment, err := m.repository.GetByID(ctx, event.ConsignmentID)
+	if err != nil {
+		return fmt.Errorf("failed to get consignment %s: %w", event.ConsignmentID, err)
+	}
 
-	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
-		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
-		return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
+	// If consignment still pending cancel and refund if neccessary
+	if consignment.Status == storage.StatusPending {
+		if consignment.PaymentID != "" {
+			// REFUND
+			refundErr := backoff.Retry(func() error {
+				_, err := m.paymentCli.Refund(ctx, &payment.RefundRequest{
+					PaymentId:      consignment.PaymentID,
+					IdempotencyKey: consignment.ID,
+				})
+				return err
+			}, newPaymentBackoff())
+			if refundErr != nil {
+				log.Error().Str("payment_id", consignment.PaymentID).Err(refundErr).Msg("ALERT: failed to refund payment — manual intervention required")
+			}
+		}
+
+		// CANCEL
+		if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
+			log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
+			return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
+		}
 	}
 
 	return nil

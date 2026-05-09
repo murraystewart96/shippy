@@ -180,12 +180,14 @@ func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
 
 	outbox := mongo.NewOutbox(s.mongoCli.Database("shippy_test").Collection("outbox"))
 	repository := mongo.New(s.mongoCli.Database("shippy_test").Collection("consignments"))
+	store := mongo.NewStore(s.mongoCli)
 
 	mgr, err := manager.New(
 		s.producer,
 		consumer,
 		topics,
 		outbox,
+		store,
 		paymentpb.NewPaymentServiceClient(paymentConn),
 		repository,
 		manager.Config{OutboxInterval: 1},

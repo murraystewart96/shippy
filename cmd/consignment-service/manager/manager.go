@@ -38,6 +38,7 @@ const (
 type Manager struct {
 	repository storage.ConsignmentRepository
 	outbox     storage.OutboxRepository
+	transactor storage.Transactor
 	paymentCli paymentpb.PaymentServiceClient
 
 	consumer       kafka.IConsumer
@@ -51,6 +52,7 @@ func New(
 	consumer kafka.IConsumer,
 	topics []string,
 	outbox storage.OutboxRepository,
+	transactor storage.Transactor,
 	paymentCli paymentpb.PaymentServiceClient,
 	repo storage.ConsignmentRepository,
 	cfg Config,
@@ -61,6 +63,7 @@ func New(
 		paymentCli:     paymentCli,
 		repository:     repo,
 		outbox:         outbox,
+		transactor:     transactor,
 		outboxInterval: cfg.OutboxInterval,
 	}
 

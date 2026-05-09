@@ -18,10 +18,18 @@ type mockRepository struct {
 	getByID      func(ctx context.Context, id string) (*storage.Consignment, error)
 	getAll       func(ctx context.Context) ([]*storage.Consignment, error)
 	updateStatus func(ctx context.Context, id string, status string) error
+	update       func(ctx context.Context, id string, u storage.ConsignmentUpdate) error
 
-	mu                sync.Mutex
-	updateStatusCalls int
-	lastStatus        string
+	mu          sync.Mutex
+	updateCalls int
+	lastStatus  string
+	lastPaymentID string
+}
+
+type mockTransactor struct{}
+
+func (m *mockTransactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
 }
 
 func (m *mockRepository) Create(ctx context.Context, consignment *storage.Consignment) error {
@@ -39,9 +47,25 @@ func (m *mockRepository) GetAll(ctx context.Context) ([]*storage.Consignment, er
 func (m *mockRepository) UpdateStatus(ctx context.Context, id string, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.updateStatusCalls++
+	m.updateCalls++
 	m.lastStatus = status
 	return m.updateStatus(ctx, id, status)
+}
+
+func (m *mockRepository) Update(ctx context.Context, id string, u storage.ConsignmentUpdate) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.updateCalls++
+	if u.Status != nil {
+		m.lastStatus = *u.Status
+	}
+	if u.PaymentID != nil {
+		m.lastPaymentID = *u.PaymentID
+	}
+	if m.update != nil {
+		return m.update(ctx, id, u)
+	}
+	return nil
 }
 
 // mockOutbox

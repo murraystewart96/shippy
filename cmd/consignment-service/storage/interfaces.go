@@ -12,10 +12,15 @@ type ConsignmentRepository interface {
 	GetByID(ctx context.Context, id string) (*Consignment, error)
 	GetAll(ctx context.Context) ([]*Consignment, error)
 	UpdateStatus(ctx context.Context, id string, status string) error
+	Update(ctx context.Context, id string, u ConsignmentUpdate) error
 }
 
 type OutboxRepository interface {
 	CreateEvent(ctx context.Context, event *OutboxEvent) error
 	MarkPublished(ctx context.Context, id uuid.UUID) error
 	GetPendingEvents(ctx context.Context, lease time.Duration) ([]*OutboxEvent, error)
+}
+
+type Transactor interface {
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }

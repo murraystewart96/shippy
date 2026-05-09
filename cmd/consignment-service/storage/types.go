@@ -13,6 +13,11 @@ const (
 	StatusConfirmationPending = "confirmation_pending"
 )
 
+type ConsignmentUpdate struct {
+	Status    *string
+	PaymentID *string
+}
+
 type Consignment struct {
 	ID            string     `bson:"_id"            json:"id"`
 	Weight        int32      `bson:"weight"         json:"weight"`
@@ -21,6 +26,7 @@ type Consignment struct {
 	VesselID      string     `bson:"vessel_id"      json:"vessel_id"`
 	ReservationID string     `bson:"reservation_id" json:"reservation_id"`
 	Status        string     `bson:"status"         json:"status"`
+	PaymentID     string     `bson:"payment_id"     json:"payment_id"`
 }
 
 type Container struct {

@@ -14,6 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const errNotFound = "consignment %s not found"
+
 type Mongo struct {
 	collection *mongo.Collection
 }
@@ -56,7 +58,31 @@ func (repo *Mongo) UpdateStatus(ctx context.Context, id string, status string) e
 		return fmt.Errorf("failed to update consignment status: %w", err)
 	}
 	if result.MatchedCount == 0 {
-		return fmt.Errorf("consignment %s not found", id)
+		return fmt.Errorf(errNotFound, id)
+	}
+	return nil
+}
+
+func (repo *Mongo) Update(ctx context.Context, id string, u storage.ConsignmentUpdate) error {
+	fields := bson.M{}
+	if u.Status != nil {
+		fields["status"] = *u.Status
+	}
+	if u.PaymentID != nil {
+		fields["payment_id"] = *u.PaymentID
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	result, err := repo.collection.UpdateOne(ctx,
+		bson.M{"_id": id},
+		bson.M{"$set": fields},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update consignment: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf(errNotFound, id)
 	}
 	return nil
 }
@@ -66,7 +92,7 @@ func (repo *Mongo) GetByID(ctx context.Context, id string) (*storage.Consignment
 	err := repo.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&consignment)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, fmt.Errorf("consignment %s not found", id)
+			return nil, fmt.Errorf(errNotFound, id)
 		}
 		return nil, fmt.Errorf("failed to get consignment: %w", err)
 	}
