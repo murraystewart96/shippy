@@ -91,8 +91,8 @@ func TestConsignmentCreateAndConfirmation(t *testing.T) {
 			return false
 		}
 
-		return result["status"] == string(storage.StatusConfirmed)
-	}, 15*time.Second, 500*time.Millisecond, "consignment status should be confirmed")
+		return result["status"] == string(storage.StatusConfirmationPending)
+	}, 15*time.Second, 500*time.Millisecond, "consignment status should be confirmation_pending")
 }
 
 func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
@@ -165,7 +165,7 @@ func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return result["status"] == string(storage.StatusConfirmed)
+		return result["status"] == string(storage.StatusConfirmationPending)
 	}, 15*time.Second, 500*time.Millisecond, "consignment status should be confirmed")
 
 	cancel()

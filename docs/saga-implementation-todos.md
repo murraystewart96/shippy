@@ -41,6 +41,12 @@ Add to the consignment schema:
 
 ---
 
+## Kafka producer
+
+7. **Synchronous delivery in outbox publisher.** `Producer.Produce` is currently fire-and-forget — it queues the message internally and returns `nil` immediately, so `MarkPublished` runs before Kafka confirms delivery. If the broker fails to deliver after `MarkPublished` is called, the event is permanently lost. Fix: pass a delivery channel to `confluent-kafka-go`'s `Produce`, wait for the delivery report, and only call `MarkPublished` on success. On delivery error, return the error and let the outbox lease expire so the poller retries.
+
+---
+
 ## Reconciliation job
 
 See [reconciliation-job.md](reconciliation-job.md).

@@ -58,7 +58,9 @@ curl -X POST http://localhost:8080/v1/consignments \
     ]
   }'
 
+curl -s -X POST http://localhost:8080/v1/consignments/confirm/704edb41-3f55-40e3-b11d-c558d7f04cda \  -H "x-token:  
 
+curl -s http://localhost:8080/v1/consignments \       -H "x-token:   
 
 
 ## Booking Flow (Choreography-based Saga)
@@ -93,6 +95,9 @@ Capture and ConfirmCapacity are both idempotent — safe to retry. ConfirmCapaci
 a unique compound index on `(reservation_id, operation)` in the vessel service.
 
 ---
+
+## Payment Service
+Assuming perfectly idempotent payment service
 
 ## Reservation Service Design
 
@@ -199,11 +204,96 @@ and then publish the event before marking the event as published in the DB. As s
 Talk about everysec in redis and how there is potential reservation loss. We would handle this by
 monitoring metrics for reservations and run manual reconciliaiton job if neccessary.
 
+Expired reservation with captured payments but no paymentID because atomic transaction after payment capture failed.
 
-Complete the confirmed flow -> reason about scaling the reservation service - what if we just wanted to scale the event consumers.
+Capture succeeds (sync call)
+DB goes down — atomic transaction fails, payment_id not written
+Kafka retries, but DB is still down
+Reservation TTL expires
+handleExpiredReservationEvent fires — status pending, payment_auth_id present, payment_id absent
+Compensation logic sees "authorised, not captured" → voids — but the payment was actually captured
 
-NEXT. update consignment to have status field. think through the flow from start to finish. 
 
-Think about integration testing. also how can we prove vessel release is idempotent
 
-Check if mongodb works without manually initialising next time.
+## FUTURE IMPROVEMENTS
+
+Publishing events by applying the Transaction log tailing pattern to reduce latency (outbox pattern)
+
+Use consignment ID as correlationID for observability. Review how IDs are being passed around and used
+
+Define contracts for messages (source of truth) using protobuf
+
+Add component test for consignment service confirm
+
+Chaos testing and visualising with graphs
+
+
+### TODO NEXT
+
+finish designing new event flow with explicity event contracts. Don't have looping events (CS -> CS). Get tests working, unit plus integration test. 
+
+Add payment captured state to consigment for SAGA. That is the go no go point. If SAGA gets stuck we need to check if the reservation was cancelled or confirmef or neither. we want to bring the consignment into accordance with the reservation. If confirmed then confirm. if released then cancel and refund. If neither try and confirm.
+
+Fix tests, and add observability.
+
+Make sure all event paths are covered. we need to make sure. think about how we could add a test to cover the situation is just found where the reservation service wasnt consuming the retry topic.
+
+Add logs for each step in the SAGA
+. Add log aggretgator 
+
+Add event contracts
+
+Then think about reconcilliation and event sourcing. By this point we should have enough compensation handling in place. But if a service was down and a SAGA was completed halted we need to understand 
+ - 1. how does kafka work. when an event keeps on failing how does it move on?
+ - 2. Once it has moved on how do we rehydrate that SAGA. i imagine we would need to work our way from the start of the SAGA onwards to find where it stopped. then we would probably reconstruct the neccessary event and publish it. This is where idempotency is key. it doesnt matter if we re-trigger an event that was already consumed if its idempotent
+
+ We essentially need to trace the event chain. We can source the outbox table for this as we use it for both the RS and CS. check if there is the event for a given consignmentID has been published or not.
+
+ Think about redesigning the outbox pattern. We want to do the database update and event write as a transaction. no point publishing to ourselves
+
+ Question - is redis the right choice for the reservation storage. maybe DB would be better. As long as i can articulate
+
+Review alternatives to this microservice pattern. what are the trade offs.
+
+Payment refunds. known limitation if we capture payment and then broker goes down and reservation expires
+
+Think about what happens in major failure cases. if a particular service was to go down for a long time. (like the cache for example)
+
+
+###
+
+For this project i have built on the tutorial series https://web.archive.org/web/20220124115000/https://ewanvalentine.io/microservices-in-golang-part-1/.
+
+The tutorial provided a basic distributed shipping application. The main business logic was a user would create consignments and vessels would be assigned that could handle the required capacity of the shipment.
+
+
+Describe what the system does CS -> RS -> VS
+Describe flow of actions and events
+Describe confirmation SAGA. Successful flow and compensating actions
+Describe design descisions. At least once delivery. Idempotent consumers (redis cache lock, vessel actions, payment key).
+Describe steps taken to handle stuck SAGAs. From a business perspective we want to guarantee that expired reservations are released, and once a payment is captured that the consignment gets confirmed or the payment is refunded if confirmation fails.
+What measures do we take to try and guarantee these. What are the last resort fallbacks?
+DLQ, reconcilliation job etc
+
+NOTE PRODUCTION CONCERNS
+
+For failure cases where DB is down etc. kafka will keep retrying the event until is succeeds. this is what we want. A future improvement would be to avoid a hot consumer loop where it keeps retrying a stuck event. This would also block other topics. we could do. This point generalises to all transient errors. DB being down, kafka broker being down. The known limitation is that if the DB or the broker was down for long enough that a reservation expired before they came back up the consignment might be cancelled without refunding the user. Think about if this is worth fixing for the portfolio.
+
+Delayed retry topics — on transient failure, publish the message to a topic.retry topic and commit the original offset. A separate consumer reads from the retry topic with a delay before processing. You can chain these (topic.retry.1, topic.retry.2 with increasing delays) before a final DLQ. This is very common at companies like Uber and it's arguably the cleanest pattern because:
+
+Main consumer never blocks
+Retry behaviour is visible (you can inspect retry topic lag)
+Delay is enforced by the retry consumer's poll interval, not a sleep
+
+
+
+When i come back
+- reason about table and finalise docs
+- implement the rest of the SAGA
+- update tests
+- run manually
+- update docs to describe other design decisions
+  - idempotency
+  - outbox pattern and lock
+
+- add observability

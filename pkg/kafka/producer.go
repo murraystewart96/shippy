@@ -36,6 +36,8 @@ func NewProducer(cfg *ProducerConfig) (*Producer, error) {
 }
 
 func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte) error {
+	deliveryCh := make(chan kafka.Event, 1)
+
 	err := p.client.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
@@ -43,12 +45,21 @@ func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte)
 		},
 		Key:   key,
 		Value: value,
-	}, nil)
+	}, deliveryCh)
 	if err != nil {
-		return fmt.Errorf("failed to produce event: %w", err)
+		return fmt.Errorf("failed to enqueue message: %w", err)
 	}
 
-	return nil
+	select {
+	case e := <-deliveryCh:
+		msg := e.(*kafka.Message)
+		if msg.TopicPartition.Error != nil {
+			return fmt.Errorf("failed to deliver message: %w", msg.TopicPartition.Error)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (p *Producer) Close() error {

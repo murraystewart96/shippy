@@ -29,6 +29,18 @@ RS consumes `consignment.payment.captured`, confirms capacity on VS, and publish
 
 **Reservation expires while `pending`** — CS cancels the consignment and refunds if payment was captured. If the consignment is already `confirmation_pending` when expiry fires, CS does nothing — the saga is in flight and will resolve itself.
 
+## Compensating Transactions
+
+Each saga step that produces an external side effect has a corresponding compensating transaction. Steps 1 and 3 are the critical compensations — real external side effects (money and capacity). Steps 2 and 5 are pure DB state managed as a consequence of those compensations.
+
+| # | Step | Owner | Compensating Transaction | Triggered By |
+|---|------|-------|--------------------------|--------------|
+| 1 | Capture payment | CS | Refund(`payment_id`) | `payment.captured` exhausts retries → DLQ and refunded; or reservation expires with `payment_id` present |
+| 2 | status → `confirmation_pending` + publish `payment.captured` | CS | status → `cancelled` | Flows from step 3 compensation |
+| 3 | ConfirmCapacity on vessel | RS | ReleaseCapacity on vessel | Retry exhaustion → DLQ |
+| 4 | Publish `reservation.confirmed` | RS | Re-publish `reservation.confirmed` | Reconciliation job detects stuck `confirmation_pending` |
+| 5 | status → `confirmed` | CS | — terminal, no compensation | — |
+
 ## Reconciliation
 
 A periodic reconciliation job catches consignments stuck in `confirmation_pending`. Rather than inferring state from event ordering, it queries VS directly — VS is the authoritative source of truth for what actually happened to a reservation. If VS recorded a confirm, the job re-triggers confirmation. If VS recorded a release, the job refunds and cancels. If the reservation was neither confirmed or cancelled investigation and event sourcing would be required. 

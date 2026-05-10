@@ -152,8 +152,6 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 	log.Info().Int("count", len(expired)).Msg("found expired reservations — scheduling release events")
 
 	for _, expiredReservation := range expired {
-		// TODO: when releasing expired reservations we might need to refund user
-		// if payment was captured but the event wasnt received within the timeout for some reason (kafka broker going down)
 		if err := m.scheduleReservationExpired(ctx, expiredReservation); err != nil {
 			log.Warn().
 				Str("reservation_id", expiredReservation.Id.String()).

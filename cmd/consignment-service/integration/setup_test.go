@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 	kafkaAddr := brokers[0]
 
 	// --- MongoDB ---
-	mongoContainer, err := tcMongo.Run(ctx, "mongo:7")
+	mongoContainer, err := tcMongo.Run(ctx, "mongo:7", tcMongo.WithReplicaSet("rs0"))
 	if err != nil {
 		panic(err)
 	}
@@ -62,6 +62,10 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	// directConnection bypasses replica-set member discovery so the driver
+	// uses the exposed Docker port rather than the container's internal IP,
+	// which is unreachable from the host on macOS.
+	mongoURI += "&directConnection=true"
 
 	mongoCli, err := mongoDriver.Connect(ctx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
@@ -106,6 +110,8 @@ func TestMain(m *testing.M) {
 		{Name: manager.ConsignmentPaymentAuthorisedTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ConsignmentConfirmationFailedTopic, NumPartitions: 1, ReplicationFactor: 1},
 		{Name: manager.ReservationExpiredTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.PaymentCapturedTopic, NumPartitions: 1, ReplicationFactor: 1},
+		{Name: manager.ReservationConfirmedTopic, NumPartitions: 1, ReplicationFactor: 1},
 	}); err != nil {
 		panic(err)
 	}
