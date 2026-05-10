@@ -7,6 +7,11 @@ import (
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type IConsumer interface {
@@ -61,7 +66,7 @@ func (c *Consumer) StartConsuming(ctx context.Context, topicHandlers EventHandle
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		default:
 			message, err := c.client.ReadMessage(300 * time.Millisecond)
 			if err != nil {
@@ -74,17 +79,38 @@ func (c *Consumer) StartConsuming(ctx context.Context, topicHandlers EventHandle
 			log.Info().Str("topic", *message.TopicPartition.Topic).Msg("consuming event...")
 
 			if handler, ok := topicHandlers[*message.TopicPartition.Topic]; ok {
-				if err := handler(ctx, message.Key, message.Value); err != nil {
-					log.Error().Err(err).Msg("message handler failed")
-				} else {
-					if _, err := c.client.CommitMessage(message); err != nil {
-						log.Error().Err(err).Msg("failed to commit message offset")
-					}
-				}
+				c.handleMessage(message, handler)
 			} else {
 				log.Warn().Msgf("no handler for topic: %s", *message.TopicPartition.Topic)
 			}
 		}
+	}
+}
+
+func (c *Consumer) handleMessage(message *kafka.Message, handler EventHandler) {
+	remoteCtx := otel.GetTextMapPropagator().Extract(context.Background(), NewHeaderCarrier(&message.Headers))
+
+	topic := *message.TopicPartition.Topic
+	spanOpts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			semconv.MessagingSystem("kafka"),
+			semconv.MessagingDestinationName(topic),
+			attribute.Int("messaging.kafka.partition", int(message.TopicPartition.Partition)),
+		),
+	}
+
+	if remoteSpanCtx := trace.SpanContextFromContext(remoteCtx); remoteSpanCtx.IsValid() {
+		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: remoteSpanCtx}))
+	}
+
+	msgCtx, span := otel.Tracer("kafka/consumer").Start(context.Background(), topic+" process", spanOpts...)
+	defer span.End()
+
+	if err := handler(msgCtx, message.Key, message.Value); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		log.Error().Err(err).Str("topic", topic).Msg("handler failed")
 	}
 }
 

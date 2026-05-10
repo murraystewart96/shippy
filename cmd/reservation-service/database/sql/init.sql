@@ -5,6 +5,7 @@ CREATE TABLE outbox (
     topic VARCHAR NOT NULL,
     key VARCHAR NOT NULL,
     payload JSONB NOT NULL,
+    trace_context JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     published_at TIMESTAMP,
     processing_until TIMESTAMP

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/murraystewart96/shippy/pkg/kafka"
 	"github.com/rs/zerolog/log"
 )
 
@@ -55,8 +55,8 @@ func (m *Manager) publishOutbox(ctx context.Context) error {
 			log.Info().Msg("publish deadline exceeded — remaining events will retry on next tick")
 			return nil
 		}
-
-		if err := m.producer.Produce(publishCtx, event.Topic, []byte(event.Key), event.Payload); err != nil {
+		header := kafka.HeadersFromTraceContext(event.TraceContext)
+		if err := m.producer.Produce(publishCtx, event.Topic, []byte(event.Key), event.Payload, headers); err != nil {
 			log.Warn().
 				Str("reservation_id", event.Key).
 				Str("topic", event.Topic).
@@ -68,9 +68,8 @@ func (m *Manager) publishOutbox(ctx context.Context) error {
 				return nil
 			}
 
-			kafkaErr, ok := err.(kafka.Error)
-			if ok && kafkaErr.Code() == kafka.ErrMsgTimedOut || kafkaErr.Code() == kafka.ErrTransport {
-				log.Error().Err(kafkaErr).Msg("kafka unreachable — aborting outbox publish")
+			if errors.Is(err, kafka.ErrBrokerUnreachable) {
+				log.Error().Err(err).Msg("kafka unreachable — aborting outbox publish")
 				return err // break out entirely, all rows stay unpublished
 			}
 

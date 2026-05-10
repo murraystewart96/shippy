@@ -10,9 +10,16 @@ import (
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	"github.com/murraystewart96/shippy/proto/payment"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
-const backoffAttempts = 3
+const (
+	backoffAttempts = 3
+	tracerName      = "consignment-service"
+)
 
 func newPaymentBackoff() backoff.BackOff {
 	return backoff.WithMaxRetries(backoff.NewExponentialBackOff(
@@ -63,12 +70,24 @@ func (m *Manager) processEvents(ctx context.Context) error {
 }
 
 func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handlePaymentAuthorisedEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var event ConfirmationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		// TODO - Alert
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal confirmation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("consignment_id", event.ConsignmentID),
+		attribute.String("reservation_id", event.ReservationID),
+	)
 
 	if !event.PaymentCaptured {
 		// capture payment
@@ -84,6 +103,8 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 			return err
 		}, newPaymentBackoff())
 		if captureErr != nil {
+			span.RecordError(captureErr)
+			span.SetStatus(codes.Error, "payment capture failed — retrying")
 			event.RetryCount++
 			if err := m.publishPaymentAuthorised(ctx, &event); err != nil {
 				return fmt.Errorf("failed to schedule event retry: %w", err)
@@ -123,6 +144,8 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 			PaymentID: &paymentID,
 		})
 	}); txErr != nil {
+		span.RecordError(txErr)
+		span.SetStatus(codes.Error, "payment captured tx failed — retrying")
 		event.RetryCount++
 		if scheduleErr := m.publishPaymentAuthorised(ctx, &event); scheduleErr != nil {
 			return fmt.Errorf("failed to schedule event retry: %w", scheduleErr)
@@ -135,11 +158,23 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 }
 
 func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handleFailedConfirmationEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var event ConfirmationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal failed confirmation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("consignment_id", event.ConsignmentID),
+		attribute.String("payment_id", event.PaymentID),
+	)
 
 	// Undo payment — void if not yet captured, refund if captured
 	if !event.PaymentCaptured {
@@ -148,6 +183,7 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 			return err
 		}, newPaymentBackoff())
 		if voidErr != nil {
+			span.RecordError(voidErr)
 			log.Error().Str("payment_auth_id", event.PaymentAuthID).Err(voidErr).Msg("ALERT: failed to void payment — authorisation will expire naturally")
 		}
 	} else {
@@ -159,11 +195,14 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 			return err
 		}, newPaymentBackoff())
 		if refundErr != nil {
+			span.RecordError(refundErr)
 			log.Error().Str("payment_id", event.PaymentID).Err(refundErr).Msg("ALERT: failed to refund payment — manual intervention required")
 		}
 	}
 
 	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
+		span.RecordError(updateErr)
+		span.SetStatus(codes.Error, updateErr.Error())
 		log.Error().
 			Str("consignment_id", event.ConsignmentID).
 			Err(updateErr).
@@ -176,14 +215,25 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 }
 
 func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handleExpiredReservationEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var event ReservationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
+	span.SetAttributes(attribute.String("consignment_id", event.ConsignmentID))
+
 	consignment, err := m.repository.GetByID(ctx, event.ConsignmentID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to get consignment %s: %w", event.ConsignmentID, err)
 	}
 
@@ -199,12 +249,15 @@ func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value 
 				return err
 			}, newPaymentBackoff())
 			if refundErr != nil {
+				span.RecordError(refundErr)
 				log.Error().Str("payment_id", consignment.PaymentID).Err(refundErr).Msg("ALERT: failed to refund payment — manual intervention required")
 			}
 		}
 
 		// CANCEL
 		if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusCancelled); updateErr != nil {
+			span.RecordError(updateErr)
+			span.SetStatus(codes.Error, updateErr.Error())
 			log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
 			return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
 		}
@@ -215,13 +268,24 @@ func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value 
 
 // TODO: merge with function above
 func (m *Manager) handleReservationConfirmedEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handleReservationConfirmedEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var event ReservationEvent
 	if err := json.Unmarshal(value, &event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal expired reservation event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
+	span.SetAttributes(attribute.String("consignment_id", event.ConsignmentID))
+
 	if updateErr := m.repository.UpdateStatus(ctx, event.ConsignmentID, storage.StatusConfirmed); updateErr != nil {
+		span.RecordError(updateErr)
+		span.SetStatus(codes.Error, updateErr.Error())
 		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
 		return fmt.Errorf("failed to confirm consignment %s: %w", event.ConsignmentID, updateErr)
 	}

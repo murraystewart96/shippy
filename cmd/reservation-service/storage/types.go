@@ -15,10 +15,11 @@ type ReservationInfo struct {
 }
 
 type OutboxEvent struct {
-	Id          uuid.UUID
-	Topic       string
-	Key         string
-	Payload     []byte
-	CreatedAt   time.Time
-	PublishedAt *time.Time
+	Id           uuid.UUID
+	Topic        string
+	Key          string
+	Payload      []byte
+	CreatedAt    time.Time
+	PublishedAt  *time.Time
+	TraceContext map[string]string
 }

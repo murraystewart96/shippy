@@ -10,6 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type OutboxMongo struct {
@@ -21,23 +23,28 @@ func NewOutbox(collection *mongo.Collection) *OutboxMongo {
 }
 
 type outboxDocument struct {
-	Id              string     `bson:"_id"`
-	Topic           string     `bson:"topic"`
-	Key             string     `bson:"key"`
-	Payload         []byte     `bson:"payload"`
-	CreatedAt       time.Time  `bson:"created_at"`
-	PublishedAt     *time.Time `bson:"published_at"`
-	ProcessingUntil *time.Time `bson:"processing_until"`
-	ClaimID         string     `bson:"claim_id"`
+	Id              string            `bson:"_id"`
+	Topic           string            `bson:"topic"`
+	Key             string            `bson:"key"`
+	Payload         []byte            `bson:"payload"`
+	CreatedAt       time.Time         `bson:"created_at"`
+	PublishedAt     *time.Time        `bson:"published_at"`
+	ProcessingUntil *time.Time        `bson:"processing_until"`
+	ClaimID         string            `bson:"claim_id"`
+	TraceContext    map[string]string `bson:"trace_context"`
 }
 
 func (o *OutboxMongo) CreateEvent(ctx context.Context, event *storage.OutboxEvent) error {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
 	doc := &outboxDocument{
-		Id:        uuid.New().String(),
-		Topic:     event.Topic,
-		Key:       event.Key,
-		Payload:   event.Payload,
-		CreatedAt: time.Now(),
+		Id:           uuid.New().String(),
+		Topic:        event.Topic,
+		Key:          event.Key,
+		Payload:      event.Payload,
+		CreatedAt:    time.Now(),
+		TraceContext: carrier,
 	}
 
 	_, err := o.collection.InsertOne(ctx, doc)
@@ -118,6 +125,7 @@ func (o *OutboxMongo) GetPendingEvents(ctx context.Context, lease time.Duration)
 			PublishedAt:     doc.PublishedAt,
 			ProcessingUntil: doc.ProcessingUntil,
 			ClaimID:         doc.ClaimID,
+			TraceContext:    doc.TraceContext,
 		})
 	}
 

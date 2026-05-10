@@ -11,6 +11,13 @@ import (
 
 	"github.com/google/uuid"
 	pb "github.com/murraystewart96/shippy/proto/vessel"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -34,6 +41,7 @@ func main() {
 	if port == "" {
 		port = defaultPort
 	}
+
 	uri := fmt.Sprintf("mongodb://%s:%s", host, port)
 
 	mongoCli, err := CreateMongoClient(context.Background(), uri, 0)
@@ -64,6 +72,12 @@ func main() {
 		log.Printf("seed vessel: %v", err)
 	}
 
+	shutdown, err := initTracer(context.Background(), "gateway")
+	if err != nil {
+		log.Fatal("failed to init tracer: %w", err)
+	}
+	defer shutdown()
+
 	handler := &handler{repository: repo}
 
 	lis, err := net.Listen("tcp", grpcAddr)
@@ -71,7 +85,9 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	)
 	pb.RegisterVesselServiceServer(srv, handler)
 	reflection.Register(srv)
 
@@ -87,4 +103,27 @@ func main() {
 	if err := srv.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+}
+
+func initTracer(ctx context.Context, serviceName string) (func(), error) {
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+		otlptracegrpc.WithInsecure(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := trace.NewTracerProvider(
+		trace.WithBatcher(exporter),
+		trace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String(serviceName),
+		)),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	return func() { _ = tp.Shutdown(ctx) }, nil
 }

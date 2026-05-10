@@ -2,13 +2,20 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
+// ErrBrokerUnreachable is returned by Produce when the broker cannot be reached.
+// Callers that loop over multiple messages should abort on this error rather than continuing.
+var ErrBrokerUnreachable = errors.New("kafka broker unreachable")
+
+type Headers []kafka.Header
+
 type IProducer interface {
-	Produce(ctx context.Context, topic string, key, value []byte) error
+	Produce(ctx context.Context, topic string, key, value []byte, headers Headers) error
 	Close() error
 }
 
@@ -35,7 +42,7 @@ func NewProducer(cfg *ProducerConfig) (*Producer, error) {
 	}, nil
 }
 
-func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte) error {
+func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte, headers Headers) error {
 	deliveryCh := make(chan kafka.Event, 1)
 
 	err := p.client.Produce(&kafka.Message{
@@ -43,8 +50,9 @@ func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte)
 			Topic:     &topic,
 			Partition: kafka.PartitionAny,
 		},
-		Key:   key,
-		Value: value,
+		Key:     key,
+		Value:   value,
+		Headers: headers,
 	}, deliveryCh)
 	if err != nil {
 		return fmt.Errorf("failed to enqueue message: %w", err)
@@ -54,12 +62,29 @@ func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte)
 	case e := <-deliveryCh:
 		msg := e.(*kafka.Message)
 		if msg.TopicPartition.Error != nil {
+			if isBrokerUnreachable(msg.TopicPartition.Error) {
+				return fmt.Errorf("%w: %w", ErrBrokerUnreachable, msg.TopicPartition.Error)
+			}
 			return fmt.Errorf("failed to deliver message: %w", msg.TopicPartition.Error)
 		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func isBrokerUnreachable(err error) bool {
+	var kafkaErr kafka.Error
+	return errors.As(err, &kafkaErr) &&
+		(kafkaErr.Code() == kafka.ErrMsgTimedOut || kafkaErr.Code() == kafka.ErrTransport)
+}
+
+func HeadersFromTraceContext(tc map[string]string) Headers {
+	headers := make(Headers, 0, len(tc))
+	for k, v := range tc {
+		headers = append(headers, kafka.Header{Key: k, Value: []byte(v)})
+	}
+	return headers
 }
 
 func (p *Producer) Close() error {

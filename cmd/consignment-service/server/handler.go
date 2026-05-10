@@ -14,6 +14,8 @@ import (
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
 	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -42,6 +44,7 @@ func NewHandler(
 
 func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*pb.Response, error) {
 	consignmentID := uuid.New()
+	trace.SpanFromContext(ctx).SetAttributes(attribute.String("consignment_id", consignmentID.String()))
 
 	reservationResponse, err := h.reservationCli.ReserveCapacity(ctx, &reservepb.ReserveCapacityRequest{
 		ConsignmentId:      consignmentID.String(),
@@ -68,6 +71,8 @@ func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*
 }
 
 func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest) (*pb.ConfirmResponse, error) {
+	trace.SpanFromContext(ctx).SetAttributes(attribute.String("consignment_id", req.Id))
+
 	consignment, err := h.repository.GetByID(ctx, req.Id)
 	if err != nil {
 		log.Printf("failed to get consignment %s: %v", req.Id, err)
@@ -96,7 +101,7 @@ func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		return nil, status.Error(codes.Internal, "failed to authorise payment")
 	}
 
-	if err := h.scheduleConsignmentConfirmation(ctx, paymentResponse.AuthId, consignment); err != nil {
+	if err := h.publishPaymentAuthorised(ctx, paymentResponse.AuthId, consignment); err != nil {
 		//TODO: maybe we should do this - cancelConsignment(ctx, consignment.ID, h.repository)
 
 		return nil, fmt.Errorf("failed to confirm consignment: %w", err)
@@ -113,7 +118,7 @@ func (h *Handler) GetConsignments(ctx context.Context, _ *pb.GetRequest) (*pb.Re
 	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
 }
 
-func (h *Handler) scheduleConsignmentConfirmation(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
+func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
 	confirmationEvent := &manager.ConfirmationEvent{
 		PaymentAuthID: paymentAuthID,
 		ReservationID: consignment.ReservationID,

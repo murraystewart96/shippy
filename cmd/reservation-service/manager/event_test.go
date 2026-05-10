@@ -421,7 +421,7 @@ func TestHandleCapacityEvent_ExhaustRetries_Release_And_NotifyConfirmConsignment
 
 	producer := &mockProducer{}
 
-	producer.produce = func(ctx context.Context, topic string, key, value []byte) error {
+	producer.produce = func(ctx context.Context, topic string, key, value []byte, headers kafka.Headers) error {
 		return nil
 	}
 

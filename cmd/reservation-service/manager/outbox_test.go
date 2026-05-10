@@ -13,13 +13,13 @@ import (
 )
 
 type mockProducer struct {
-	produce      func(ctx context.Context, topic string, key, value []byte) error
+	produce      func(ctx context.Context, topic string, key, value []byte, headers kafka.Headers) error
 	produceCalls int
 }
 
-func (m *mockProducer) Produce(ctx context.Context, topic string, key, value []byte) error {
+func (m *mockProducer) Produce(ctx context.Context, topic string, key, value []byte, headers kafka.Headers) error {
 	m.produceCalls++
-	return m.produce(ctx, topic, key, value)
+	return m.produce(ctx, topic, key, value, headers)
 }
 
 func (m *mockProducer) Close() error { return nil }
@@ -52,7 +52,7 @@ func TestPublishOutbox(t *testing.T) {
 	}
 
 	producer := &mockProducer{
-		produce: func(ctx context.Context, topic string, key, value []byte) error {
+		produce: func(ctx context.Context, topic string, key, value []byte, headers kafka.Headers) error {
 			return nil
 		},
 	}

@@ -10,6 +10,13 @@ import (
 	"syscall"
 
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 
 	"github.com/murraystewart96/shippy/consignment-service/manager"
 	"github.com/murraystewart96/shippy/consignment-service/server"
@@ -69,6 +76,12 @@ func run() error {
 		port = defaultPort
 	}
 
+	shutdown, err := initTracer(context.Background(), "consignment")
+	if err != nil {
+		return fmt.Errorf("failed to init tracer: %w", err)
+	}
+	defer shutdown()
+
 	mongoCli, err := mongo.CreateClient(context.Background(), fmt.Sprintf("mongodb://%s:%s", host, port), 0)
 	if err != nil {
 		return err
@@ -79,13 +92,19 @@ func run() error {
 	outbox := mongo.NewOutbox(mongoCli.Database("shippy").Collection("outbox"))
 	store := mongo.NewStore(mongoCli)
 
-	reservationConn, err := grpc.NewClient(reservationServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	reservationConn, err := grpc.NewClient(reservationServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if err != nil {
 		return err
 	}
 	defer reservationConn.Close()
 
-	paymentConn, err := grpc.NewClient(paymentServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	paymentConn, err := grpc.NewClient(paymentServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if err != nil {
 		return err
 	}
@@ -163,4 +182,27 @@ func run() error {
 	wg.Wait()
 
 	return nil
+}
+
+func initTracer(ctx context.Context, serviceName string) (func(), error) {
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+		otlptracegrpc.WithInsecure(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := trace.NewTracerProvider(
+		trace.WithBatcher(exporter),
+		trace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String(serviceName),
+		)),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	return func() { _ = tp.Shutdown(ctx) }, nil
 }

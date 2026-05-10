@@ -9,14 +9,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 
 func (db *DB) CreateEvent(ctx context.Context, event *storage.OutboxEvent) error {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
 	_, err := db.pool.Exec(ctx,
-		`INSERT INTO outbox (topic, key, payload)
-		 VALUES ($1, $2, $3)`,
-		event.Topic, event.Key, event.Payload,
+		`INSERT INTO outbox (topic, key, payload, trace_context)
+		 VALUES ($1, $2, $3, $4)`,
+		event.Topic, event.Key, event.Payload, map[string]string(carrier),
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -51,7 +56,7 @@ func (db *DB) GetPendingEvents(ctx context.Context, lease time.Duration) ([]*sto
 	defer tx.Rollback(ctx)
 
 	rows, err := tx.Query(ctx,
-		`SELECT id, topic, key, payload, created_at, published_at
+		`SELECT id, topic, key, payload, created_at, published_at, trace_context
 		 FROM outbox
 		 WHERE published_at IS NULL
 		   AND (processing_until IS NULL OR processing_until < NOW())
@@ -72,6 +77,7 @@ func (db *DB) GetPendingEvents(ctx context.Context, lease time.Duration) ([]*sto
 			&event.Payload,
 			&event.CreatedAt,
 			&event.PublishedAt,
+			&event.TraceContext,
 		); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan outbox event: %w", err)

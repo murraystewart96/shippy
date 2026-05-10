@@ -6,12 +6,15 @@ import (
 
 	pb "github.com/murraystewart96/shippy/proto/consignment"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 func NewGRPCServer(handler *Handler) *grpc.Server {
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	)
 	pb.RegisterConsignmentServiceServer(srv, handler)
 	reflection.Register(srv)
 	return srv

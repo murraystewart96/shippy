@@ -6,6 +6,7 @@ import (
 
 	pb "github.com/murraystewart96/shippy/proto/reservation"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -16,7 +17,9 @@ func NewGRPCServer(handler *GRPCHandler, grpcOpts ...grpc.ServerOption) *grpc.Se
 	//hsrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	//healthpb.RegisterHealthServer(gsrv, hsrv)
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	)
 
 	pb.RegisterReservationServiceServer(srv, handler)
 

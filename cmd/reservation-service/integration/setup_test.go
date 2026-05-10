@@ -201,5 +201,5 @@ func (s *suite) publish(t *testing.T, topic, key string, v any) {
 	t.Helper()
 	payload, err := json.Marshal(v)
 	require.NoError(t, err)
-	require.NoError(t, s.producer.Produce(context.Background(), topic, []byte(key), payload))
+	require.NoError(t, s.producer.Produce(context.Background(), topic, []byte(key), payload, nil))
 }

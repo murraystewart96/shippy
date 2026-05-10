@@ -9,6 +9,7 @@ import (
 
 	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
@@ -31,6 +32,10 @@ func NewCache(cfg *config.Redis) *Cache {
 		Password: "",
 		DB:       0,
 	})
+
+	if err := redisotel.InstrumentTracing(client); err != nil {
+		log.Warn().Err(err).Msg("failed to instrument redis tracing")
+	}
 
 	return &Cache{
 		client:             client,

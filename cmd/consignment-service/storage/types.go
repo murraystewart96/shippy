@@ -46,4 +46,5 @@ type OutboxEvent struct {
 	PublishedAt     *time.Time
 	ProcessingUntil *time.Time
 	ClaimID         string
+	TraceContext    map[string]string
 }

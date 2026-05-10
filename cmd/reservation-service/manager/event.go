@@ -9,7 +9,13 @@ import (
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+const tracerName = "reservation-service"
 
 type EventAction int
 
@@ -101,11 +107,23 @@ func (m *Manager) scheduleReservationConfirmed(ctx context.Context, event *Capac
 }
 
 func (m *Manager) handleReservationExpiredEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handleReservationExpiredEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var e reservationExpiredPayload
 	if err := json.Unmarshal(value, &e); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal reservation expired event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("reservation_id", e.ReservationID),
+		attribute.String("vessel_id", e.VesselID),
+	)
 
 	rID, err := uuid.Parse(e.ReservationID)
 	if err != nil {
@@ -130,7 +148,13 @@ func (m *Manager) handleReservationExpiredEvent(ctx context.Context, key, value 
 			NumberOfContainers: e.Containers,
 		},
 	}
-	return m.processCapacityEvent(ctx, event)
+	if err := m.processCapacityEvent(ctx, event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	return nil
 }
 
 func (m *Manager) processEvents(ctx context.Context) error {
@@ -143,23 +167,64 @@ func (m *Manager) processEvents(ctx context.Context) error {
 // Inbound handlers — unmarshal and delegate to process functions.
 
 func (m *Manager) handlePaymentCapturedEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handlePaymentCapturedEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var event CapacityEvent
 	if err := json.Unmarshal(value, &event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal payment captured event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
+
+	// TODO: examine best practices around setting attributes (more info better?)
+	span.SetAttributes(
+		attribute.String("consignment_id", event.ConsignmentID),
+		attribute.String("reservation_id", event.ReservationInfo.Id.String()),
+		attribute.String("vessel_id", event.ReservationInfo.VesselID.String()),
+	)
+
 	event.Action = CONFIRM
-	return m.processCapacityEvent(ctx, event)
+	if err := m.processCapacityEvent(ctx, event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	return nil
 }
 
 // TODO: review why we needed the retry topic
 func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "handleCapacityEvent",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	var event CapacityEvent
 	if err := json.Unmarshal(value, &event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal release capacity event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
-	return m.processCapacityEvent(ctx, event)
+
+	span.SetAttributes(
+		attribute.String("consignment_id", event.ConsignmentID),
+		attribute.String("reservation_id", event.ReservationInfo.Id.String()),
+		attribute.String("vessel_id", event.ReservationInfo.VesselID.String()),
+	)
+
+	if err := m.processCapacityEvent(ctx, event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	return nil
 }
 
 func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent) error {
