@@ -13,9 +13,11 @@ services:
       USER_SERVICE_ADDRESS: "user:50051"
       CONSIGNMENT_SERVICE_ADDRESS: "consignment:50051"
       JWT_SECRET: "secret"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "tempo:4317"
     depends_on:
       - user
       - consignment
+      - tempo
 
   consignment:
     restart: always
@@ -31,6 +33,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      tempo:
+        condition: service_started
     environment:
       GRPC_ADDRESS: ":50051"
       DB_HOST: "datastore"
@@ -38,7 +42,8 @@ services:
       RESERVATION_SERVICE_ADDRESS: "reservation:50051"
       PAYMENT_SERVICE_ADDRESS: "payment:50051"
       KAFKA_ADDRESS: "kafka:9092"
-      OUTBOX_INTERVAL: "10"
+      OUTBOX_INTERVAL: "5"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "tempo:4317"
 
   vessel:
     restart: always
@@ -115,7 +120,8 @@ services:
       SHIPPY_KAFKA_CONSUMER_GROUP_ID: "reservation-service"
       SHIPPY_KAFKA_CONSUMER_OFFSET_RESET: "earliest"
       SHIPPY_MANAGER_CLEANUP_INTERVAL: "30"  # 30 seconds — short for testing
-      SHIPPY_MANAGER_OUTBOX_INTERVAL: "10"
+      SHIPPY_MANAGER_OUTBOX_INTERVAL: "5"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "tempo:4317"
     depends_on:
       vessel:
         condition: service_started
@@ -125,6 +131,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      tempo:
+        condition: service_started
 
   reservation-db:
     image: postgres:alpine
@@ -169,6 +177,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - 4317:4317    # OTLP gRPC
+      - 3200:3200    # Tempo HTTP API
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - 3000:3000
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+    depends_on:
+      - tempo
 
   # Message broker
   nats:

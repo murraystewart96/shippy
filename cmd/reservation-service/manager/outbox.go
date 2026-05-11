@@ -55,7 +55,8 @@ func (m *Manager) publishOutbox(ctx context.Context) error {
 			log.Info().Msg("publish deadline exceeded — remaining events will retry on next tick")
 			return nil
 		}
-		header := kafka.HeadersFromTraceContext(event.TraceContext)
+
+		headers := kafka.HeadersFromTraceContext(event.TraceContext)
 		if err := m.producer.Produce(publishCtx, event.Topic, []byte(event.Key), event.Payload, headers); err != nil {
 			log.Warn().
 				Str("reservation_id", event.Key).

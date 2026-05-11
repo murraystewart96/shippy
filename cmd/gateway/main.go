@@ -97,6 +97,7 @@ func main() {
 	}
 }
 
+// TODO: extract this into a package
 func initTracer(ctx context.Context, serviceName string) (func(), error) {
 	exporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),

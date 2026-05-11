@@ -91,20 +91,14 @@ func (c *Consumer) handleMessage(message *kafka.Message, handler EventHandler) {
 	remoteCtx := otel.GetTextMapPropagator().Extract(context.Background(), NewHeaderCarrier(&message.Headers))
 
 	topic := *message.TopicPartition.Topic
-	spanOpts := []trace.SpanStartOption{
+	msgCtx, span := otel.Tracer("kafka/consumer").Start(remoteCtx, topic+" process",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			semconv.MessagingSystem("kafka"),
 			semconv.MessagingDestinationName(topic),
 			attribute.Int("messaging.kafka.partition", int(message.TopicPartition.Partition)),
 		),
-	}
-
-	if remoteSpanCtx := trace.SpanContextFromContext(remoteCtx); remoteSpanCtx.IsValid() {
-		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: remoteSpanCtx}))
-	}
-
-	msgCtx, span := otel.Tracer("kafka/consumer").Start(context.Background(), topic+" process", spanOpts...)
+	)
 	defer span.End()
 
 	if err := handler(msgCtx, message.Key, message.Value); err != nil {
