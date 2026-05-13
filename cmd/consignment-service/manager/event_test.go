@@ -54,7 +54,7 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -90,7 +90,7 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -125,7 +125,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -166,7 +166,7 @@ func TestHandlePaymentAuthorisedEvent_PaymentCapturedEventFails_SchedulesRetry(t
 		return nil
 	}
 
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -212,7 +212,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 		return nil
 	}
 
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	eventJSON := mustMarshalEvent(t, &ConfirmationEvent{
@@ -240,7 +240,7 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 }
 
 func TestHandlePaymentAuthorisedEvent_InvalidJSON(t *testing.T) {
-	mgr, err := New(nil, nil, nil, nil, nil, nil, nil, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, nil, nil, nil, &mockMetrics{}, nil, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte("key"), []byte("not valid json"))
@@ -262,7 +262,7 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -294,7 +294,7 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -326,7 +326,7 @@ func TestHandleFailedConfirmationEvent_VoidFails_StillCancels(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{
@@ -357,7 +357,7 @@ func TestHandleFailedConfirmationEvent_RefundFails_StillCancels(t *testing.T) {
 		},
 	}
 	outbox := newOutboxWithStore()
-	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, repo, Config{OutboxInterval: 10})
+	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
 	event := &ConfirmationEvent{

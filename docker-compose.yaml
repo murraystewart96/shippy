@@ -44,6 +44,7 @@ services:
       KAFKA_ADDRESS: "kafka:9092"
       OUTBOX_INTERVAL: "5"
       OTEL_EXPORTER_OTLP_ENDPOINT: "tempo:4317"
+      METRICS_ADDRESS: ":9090"
 
   vessel:
     restart: always
@@ -122,6 +123,7 @@ services:
       SHIPPY_MANAGER_CLEANUP_INTERVAL: "30"  # 30 seconds — short for testing
       SHIPPY_MANAGER_OUTBOX_INTERVAL: "5"
       OTEL_EXPORTER_OTLP_ENDPOINT: "tempo:4317"
+      METRICS_ADDRESS: ":9090"
     depends_on:
       vessel:
         condition: service_started
@@ -178,6 +180,14 @@ services:
       timeout: 5s
       retries: 10
 
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - 9091:9090
+    volumes:
+      - ./config/prometheus.yaml:/etc/prometheus/prometheus.yaml
+    command: ["--config.file=/etc/prometheus/prometheus.yaml"]
+
   tempo:
     image: grafana/tempo:latest
     command: ["-config.file=/etc/tempo.yaml"]
@@ -193,6 +203,7 @@ services:
       - 3000:3000
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana/dashboards:/etc/grafana/dashboards
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"

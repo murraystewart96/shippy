@@ -62,14 +62,14 @@ func main() {
 		log.Panicf("failed to setup indexes: %v", err)
 	}
 
-	// Seed a vessel if none exist
-	if err := repo.Create(context.Background(), &Vessel{
-		ID:        uuid.NewString(),
-		Name:      "Boaty McBoatface",
-		MaxWeight: 200000,
-		Capacity:  500,
-	}); err != nil {
-		log.Printf("seed vessel: %v", err)
+	for _, v := range []*Vessel{
+		{ID: uuid.NewString(), Name: "Boaty McBoatface", MaxWeight: 10000000, Capacity: 100000},
+		{ID: uuid.NewString(), Name: "The Unsinkable II", MaxWeight: 10000000, Capacity: 100000},
+		{ID: uuid.NewString(), Name: "SS Load Test", MaxWeight: 10000000, Capacity: 100000},
+	} {
+		if err := repo.Create(context.Background(), v); err != nil {
+			log.Printf("seed vessel: %v", err)
+		}
 	}
 
 	shutdown, err := initTracer(context.Background(), "gateway")

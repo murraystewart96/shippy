@@ -21,7 +21,7 @@ const (
 	tracerName      = "consignment-service"
 )
 
-func newPaymentBackoff() backoff.BackOff {
+func backoffFn() backoff.BackOff {
 	return backoff.WithMaxRetries(backoff.NewExponentialBackOff(
 		backoff.WithInitialInterval(100*time.Millisecond),
 	), backoffAttempts)
@@ -38,28 +38,31 @@ type PaymentCapturedEvent struct {
 	ReservationInfo reservationInfo `json:"reservation_info"`
 
 	// Only used for confirm events that end up in DLQ
-	CacheCleared  bool   `json:"cache_cleared"`
-	ConsignmentID string `json:"consignment_id"` // Marks as cancelled
-	PaymentID     string `json:"payment_id"`     // Refund payment
+	CacheCleared  bool      `json:"cache_cleared"`
+	ConsignmentID string    `json:"consignment_id"` // Marks as cancelled
+	PaymentID     string    `json:"payment_id"`     // Refund payment
+	SagaStartedAt time.Time `json:"saga_started_at"`
 }
 
 type ReservationEvent struct {
-	ConsignmentID string `json:"consignment_id"`
-	RetryCount    int    `json:"retry_count"`
+	ConsignmentID string    `json:"consignment_id"`
+	RetryCount    int       `json:"retry_count"`
+	SagaStartedAt time.Time `json:"saga_started_at"`
 }
 
 type ConfirmationEvent struct {
-	CacheCleared    bool   `json:"cache_cleared"`
-	PaymentCaptured bool   `json:"payment_captured"`
-	PaymentID       string `json:"payment_id"`
-	IdempotencyKey  string `json:"idempotency_key"`
-	PaymentAuthID   string `json:"payment_auth_id"`
-	ReservationID   string `json:"reservation_id"`
-	ConsignmentID   string `json:"consignment_id"`
-	VesselID        string `json:"vessel_id"`
-	Weight          int    `json:"weight"`
-	Containers      int    `json:"containers"`
-	RetryCount      int    `json:"retry_count"`
+	CacheCleared    bool      `json:"cache_cleared"`
+	PaymentCaptured bool      `json:"payment_captured"`
+	PaymentID       string    `json:"payment_id"`
+	IdempotencyKey  string    `json:"idempotency_key"`
+	PaymentAuthID   string    `json:"payment_auth_id"`
+	ReservationID   string    `json:"reservation_id"`
+	ConsignmentID   string    `json:"consignment_id"`
+	VesselID        string    `json:"vessel_id"`
+	Weight          int       `json:"weight"`
+	Containers      int       `json:"containers"`
+	RetryCount      int       `json:"retry_count"`
+	SagaStartedAt   time.Time `json:"saga_started_at"`
 }
 
 func (m *Manager) processEvents(ctx context.Context) error {
@@ -101,7 +104,7 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 				IdempotencyKey: event.IdempotencyKey,
 			})
 			return err
-		}, newPaymentBackoff())
+		}, backoffFn())
 		if captureErr != nil {
 			span.RecordError(captureErr)
 			span.SetStatus(codes.Error, "payment capture failed — retrying")
@@ -129,6 +132,7 @@ func (m *Manager) handlePaymentAuthorisedEvent(ctx context.Context, key, value [
 		},
 		ConsignmentID: event.ConsignmentID,
 		PaymentID:     event.PaymentID,
+		SagaStartedAt: event.SagaStartedAt,
 	}
 
 	paymentID := event.PaymentID
@@ -181,7 +185,7 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 		voidErr := backoff.Retry(func() error {
 			_, err := m.paymentCli.Void(ctx, &payment.VoidRequest{AuthId: event.PaymentAuthID})
 			return err
-		}, newPaymentBackoff())
+		}, backoffFn())
 		if voidErr != nil {
 			span.RecordError(voidErr)
 			log.Error().Str("payment_auth_id", event.PaymentAuthID).Err(voidErr).Msg("ALERT: failed to void payment — authorisation will expire naturally")
@@ -193,7 +197,7 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 				IdempotencyKey: event.ConsignmentID,
 			})
 			return err
-		}, newPaymentBackoff())
+		}, backoffFn())
 		if refundErr != nil {
 			span.RecordError(refundErr)
 			log.Error().Str("payment_id", event.PaymentID).Err(refundErr).Msg("ALERT: failed to refund payment — manual intervention required")
@@ -210,6 +214,11 @@ func (m *Manager) handleFailedConfirmationEvent(ctx context.Context, key, value 
 
 		return fmt.Errorf("failed to cancel consignment %s: %w", event.ConsignmentID, updateErr)
 	}
+
+	if !event.SagaStartedAt.IsZero() {
+		m.metrics.ObserveSagaDuration(time.Since(event.SagaStartedAt).Seconds(), "cancelled")
+	}
+	m.metrics.IncSagaTotal("cancelled")
 
 	return nil
 }
@@ -247,7 +256,7 @@ func (m *Manager) handleExpiredReservationEvent(ctx context.Context, key, value 
 					IdempotencyKey: consignment.ID,
 				})
 				return err
-			}, newPaymentBackoff())
+			}, backoffFn())
 			if refundErr != nil {
 				span.RecordError(refundErr)
 				log.Error().Str("payment_id", consignment.PaymentID).Err(refundErr).Msg("ALERT: failed to refund payment — manual intervention required")
@@ -289,6 +298,11 @@ func (m *Manager) handleReservationConfirmedEvent(ctx context.Context, key, valu
 		log.Error().Str("consignment_id", event.ConsignmentID).Err(updateErr).Msg("failed to cancel consignment")
 		return fmt.Errorf("failed to confirm consignment %s: %w", event.ConsignmentID, updateErr)
 	}
+
+	if !event.SagaStartedAt.IsZero() {
+		m.metrics.ObserveSagaDuration(time.Since(event.SagaStartedAt).Seconds(), "confirmed")
+	}
+	m.metrics.IncSagaTotal("confirmed")
 
 	return nil
 }

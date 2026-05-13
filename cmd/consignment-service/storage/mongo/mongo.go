@@ -8,7 +8,6 @@ import (
 
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
-	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -44,7 +43,6 @@ func CreateClient(ctx context.Context, uri string, retry int32) (*mongo.Client, 
 
 func (repo *Mongo) Create(ctx context.Context, consignment *storage.Consignment) error {
 	consignment.Status = storage.StatusPending
-	log.Info().Msgf("Creating consignment: %v", *consignment)
 	_, err := repo.collection.InsertOne(ctx, consignment)
 	return err
 }

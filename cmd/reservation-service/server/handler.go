@@ -44,8 +44,20 @@ func (h *GRPCHandler) ReserveCapacity(ctx context.Context, req *pb.ReserveCapaci
 		Weight:             req.Weight,
 	}
 
-	res, err := h.vesselCli.ReserveCapacity(ctx, spec)
-	if err != nil {
+	var res *vesselpb.Response
+	if err := backoff.Retry(func() error {
+		var err error
+		res, err = h.vesselCli.ReserveCapacity(ctx, spec)
+		if err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+				return backoff.Permanent(err)
+			}
+			return err
+		}
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewExponentialBackOff(
+		backoff.WithInitialInterval(100*time.Millisecond),
+	), 3)); err != nil {
 		log.Error().Str("reservation_id", reservationID.String()).Err(err).Msg("ReserveCapacity: vessel call failed")
 		return nil, fmt.Errorf("vessel ReserveCapacity failed: %w", err)
 	}

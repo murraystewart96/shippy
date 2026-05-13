@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/murraystewart96/shippy/consignment-service/metrics"
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	"github.com/murraystewart96/shippy/pkg/kafka"
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
@@ -44,6 +45,7 @@ type Manager struct {
 	consumer       kafka.IConsumer
 	producer       kafka.IProducer
 	eventHandlers  kafka.EventHandlers
+	metrics        metrics.Metrics
 	outboxInterval int
 }
 
@@ -54,6 +56,7 @@ func New(
 	outbox storage.OutboxRepository,
 	transactor storage.Transactor,
 	paymentCli paymentpb.PaymentServiceClient,
+	metrics metrics.Metrics,
 	repo storage.ConsignmentRepository,
 	cfg Config,
 ) (*Manager, error) {
@@ -64,6 +67,7 @@ func New(
 		repository:     repo,
 		outbox:         outbox,
 		transactor:     transactor,
+		metrics:        metrics,
 		outboxInterval: cfg.OutboxInterval,
 	}
 

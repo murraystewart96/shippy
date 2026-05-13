@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/consignment-service/manager"
@@ -62,6 +63,7 @@ func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*
 	consignment.ID = consignmentID.String()
 	consignment.ReservationID = reservationResponse.Id
 
+	log.Printf("Creating consignment\n")
 	if err := h.repository.Create(ctx, consignment); err != nil {
 		log.Printf("failed to create consignment: %v\n", err)
 		return nil, status.Error(codes.Internal, "failed to create consignment")
@@ -71,6 +73,7 @@ func (h *Handler) CreateConsignment(ctx context.Context, req *pb.Consignment) (*
 }
 
 func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest) (*pb.ConfirmResponse, error) {
+	sagaStartedAt := time.Now()
 	trace.SpanFromContext(ctx).SetAttributes(attribute.String("consignment_id", req.Id))
 
 	consignment, err := h.repository.GetByID(ctx, req.Id)
@@ -101,7 +104,7 @@ func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 		return nil, status.Error(codes.Internal, "failed to authorise payment")
 	}
 
-	if err := h.publishPaymentAuthorised(ctx, paymentResponse.AuthId, consignment); err != nil {
+	if err := h.publishPaymentAuthorised(ctx, paymentResponse.AuthId, consignment, sagaStartedAt); err != nil {
 		//TODO: maybe we should do this - cancelConsignment(ctx, consignment.ID, h.repository)
 
 		return nil, fmt.Errorf("failed to confirm consignment: %w", err)
@@ -118,7 +121,7 @@ func (h *Handler) GetConsignments(ctx context.Context, _ *pb.GetRequest) (*pb.Re
 	return &pb.Response{Consignments: mongo.UnmarshalConsignmentCollection(consignments)}, nil
 }
 
-func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID string, consignment *storage.Consignment) error {
+func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID string, consignment *storage.Consignment, sagaStartedAt time.Time) error {
 	confirmationEvent := &manager.ConfirmationEvent{
 		PaymentAuthID: paymentAuthID,
 		ReservationID: consignment.ReservationID,
@@ -126,6 +129,7 @@ func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID st
 		VesselID:      consignment.VesselID,
 		Weight:        int(consignment.Weight),
 		Containers:    len(consignment.Containers),
+		SagaStartedAt: sagaStartedAt,
 	}
 
 	eventJSON, err := json.Marshal(confirmationEvent)

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
@@ -16,6 +18,12 @@ import (
 )
 
 const tracerName = "reservation-service"
+
+func backoffFn() backoff.BackOff {
+	return backoff.WithMaxRetries(backoff.NewExponentialBackOff(
+		backoff.WithInitialInterval(100*time.Millisecond),
+	), maxRetries)
+}
 
 type EventAction int
 
@@ -36,14 +44,15 @@ func (a EventAction) String() string {
 }
 
 type FailedConfirmationEvent struct {
-	CacheCleared    bool   `json:"cache_cleared"`
-	PaymentCaptured bool   `json:"payment_captured"`
-	PaymentID       string `json:"payment_id"`
-	ConsignmentID   string `json:"consignment_id"`
-	ReservationID   string `json:"reservation_id"`
-	VesselID        string `json:"vessel_id"`
-	Weight          int    `json:"weight"`
-	Containers      int    `json:"containers"`
+	CacheCleared    bool      `json:"cache_cleared"`
+	PaymentCaptured bool      `json:"payment_captured"`
+	PaymentID       string    `json:"payment_id"`
+	ConsignmentID   string    `json:"consignment_id"`
+	ReservationID   string    `json:"reservation_id"`
+	VesselID        string    `json:"vessel_id"`
+	Weight          int       `json:"weight"`
+	Containers      int       `json:"containers"`
+	SagaStartedAt   time.Time `json:"saga_started_at"`
 }
 
 // CapacityEvent is RS-internal — used only for retry scheduling via the outbox.
@@ -54,13 +63,15 @@ type CapacityEvent struct {
 	RetryCount      int                     `json:"retry_count"`
 
 	// Only populated for confirm events that reach the DLQ.
-	ConsignmentID string `json:"consignment_id"`
-	PaymentID     string `json:"payment_id"`
+	ConsignmentID string    `json:"consignment_id"`
+	PaymentID     string    `json:"payment_id"`
+	SagaStartedAt time.Time `json:"saga_started_at"`
 }
 
 type reservationConfirmedPayload struct {
-	ReservationID string `json:"reservation_id"`
-	ConsignmentID string `json:"consignment_id"`
+	ReservationID string    `json:"reservation_id"`
+	ConsignmentID string    `json:"consignment_id"`
+	SagaStartedAt time.Time `json:"saga_started_at"`
 }
 
 // reservationExpiredPayload is the wire format for reservation.expired.
@@ -95,6 +106,7 @@ func (m *Manager) scheduleReservationConfirmed(ctx context.Context, event *Capac
 	payload, err := json.Marshal(reservationConfirmedPayload{
 		ReservationID: event.ReservationInfo.Id.String(),
 		ConsignmentID: event.ConsignmentID,
+		SagaStartedAt: event.SagaStartedAt,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal reservation confirmed event: %w", err)
@@ -260,22 +272,24 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 		event.CacheCleared = true
 	}
 
+	req := &vesselpb.CapacityRequest{
+		VesselId:           vesselID,
+		Weight:             int32(event.ReservationInfo.Weight),
+		NumberOfContainers: int32(event.ReservationInfo.NumberOfContainers),
+		ReservationId:      reservationID,
+	}
 	var vesselErr error
 	switch event.Action {
 	case CONFIRM:
-		_, vesselErr = m.vesselCli.ConfirmCapacity(ctx, &vesselpb.CapacityRequest{
-			VesselId:           vesselID,
-			Weight:             int32(event.ReservationInfo.Weight),
-			NumberOfContainers: int32(event.ReservationInfo.NumberOfContainers),
-			ReservationId:      reservationID,
-		})
+		vesselErr = backoff.Retry(func() error {
+			_, err := m.vesselCli.ConfirmCapacity(ctx, req)
+			return err
+		}, backoffFn())
 	case RELEASE:
-		_, vesselErr = m.vesselCli.ReleaseCapacity(ctx, &vesselpb.CapacityRequest{
-			VesselId:           vesselID,
-			Weight:             int32(event.ReservationInfo.Weight),
-			NumberOfContainers: int32(event.ReservationInfo.NumberOfContainers),
-			ReservationId:      reservationID,
-		})
+		vesselErr = backoff.Retry(func() error {
+			_, err := m.vesselCli.ReleaseCapacity(ctx, req)
+			return err
+		}, backoffFn())
 	}
 
 	if vesselErr != nil {
@@ -361,7 +375,7 @@ func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []by
 		log.Error().
 			Str("key", string(key)).
 			Int("action", int(event.Action)).
-			Msg("ALERT: unknown action on DLQ event — manual intervention required")
+			Msg("ALERT: unknown action")
 	}
 
 	return nil
@@ -377,6 +391,7 @@ func (m *Manager) notifyConfirmationFailed(ctx context.Context, event *CapacityE
 		VesselID:        event.ReservationInfo.VesselID.String(),
 		Weight:          event.ReservationInfo.Weight,
 		Containers:      event.ReservationInfo.NumberOfContainers,
+		SagaStartedAt:   event.SagaStartedAt,
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {

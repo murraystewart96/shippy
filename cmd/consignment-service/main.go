@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
@@ -19,6 +22,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 
 	"github.com/murraystewart96/shippy/consignment-service/manager"
+	"github.com/murraystewart96/shippy/consignment-service/metrics"
 	"github.com/murraystewart96/shippy/consignment-service/server"
 	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
 	"github.com/murraystewart96/shippy/pkg/kafka"
@@ -75,6 +79,14 @@ func run() error {
 	if port == "" {
 		port = defaultPort
 	}
+
+	metricsAddr := os.Getenv("METRICS_ADDRESS")
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
+
+	pMetrics := metrics.New()
+	go serveMetrics(metricsAddr)
 
 	shutdown, err := initTracer(context.Background(), "consignment")
 	if err != nil {
@@ -151,6 +163,7 @@ func run() error {
 		outbox,
 		store,
 		paymentCli,
+		pMetrics,
 		repository,
 		manager.Config{OutboxInterval: outboxInterval},
 	)
@@ -182,6 +195,20 @@ func run() error {
 	wg.Wait()
 
 	return nil
+}
+
+func serveMetrics(addr string) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal().Err(err).Msg("metrics server failed")
+	}
 }
 
 func initTracer(ctx context.Context, serviceName string) (func(), error) {

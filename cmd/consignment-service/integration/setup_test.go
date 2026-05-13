@@ -195,6 +195,7 @@ func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
 		outbox,
 		store,
 		paymentpb.NewPaymentServiceClient(paymentConn),
+		nil,
 		repository,
 		manager.Config{OutboxInterval: 1},
 	)

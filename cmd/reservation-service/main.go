@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
@@ -37,6 +40,12 @@ func main() {
 func run() error {
 	cfg := &config.Config{}
 	config.ReadEnvironment("", cfg)
+
+	metricsAddr := os.Getenv("METRICS_ADDRESS")
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
+	go serveMetrics(metricsAddr)
 
 	shutdown, err := initTracer(context.Background(), "reservation")
 	if err != nil {
@@ -126,6 +135,20 @@ func run() error {
 	wg.Wait()
 
 	return nil
+}
+
+func serveMetrics(addr string) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal().Err(err).Msg("metrics server failed")
+	}
 }
 
 func initTracer(ctx context.Context, serviceName string) (func(), error) {

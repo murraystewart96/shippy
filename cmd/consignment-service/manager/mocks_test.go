@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/consignment-service/storage"
+	"github.com/murraystewart96/shippy/pkg/kafka"
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
 	"google.golang.org/grpc"
 )
@@ -158,19 +159,26 @@ func (m *mockPaymentClient) Void(ctx context.Context, in *paymentpb.VoidRequest,
 // mockProducer
 
 type mockProducer struct {
-	produce func(ctx context.Context, topic string, key, value []byte) error
+	produce func(ctx context.Context, topic string, key, value []byte, headers kafka.Headers) error
 
 	mu           sync.Mutex
 	produceCalls int
 	lastTopic    string
 }
 
-func (m *mockProducer) Produce(ctx context.Context, topic string, key, value []byte) error {
+func (m *mockProducer) Produce(ctx context.Context, topic string, key, value []byte, headers kafka.Headers) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.produceCalls++
 	m.lastTopic = topic
-	return m.produce(ctx, topic, key, value)
+	return m.produce(ctx, topic, key, value, headers)
 }
 
 func (m *mockProducer) Close() error { return nil }
+
+// mockMetrics
+
+type mockMetrics struct{}
+
+func (m *mockMetrics) ObserveSagaDuration(_ float64, _ string) {}
+func (m *mockMetrics) IncSagaTotal(_ string)                   {}
