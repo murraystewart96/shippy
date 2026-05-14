@@ -152,7 +152,7 @@ func (m *Manager) releaseReservations(ctx context.Context) error {
 	log.Info().Int("count", len(expired)).Msg("found expired reservations — scheduling release events")
 
 	for _, expiredReservation := range expired {
-		if err := m.scheduleReservationExpired(ctx, expiredReservation); err != nil {
+		if err := m.publishReservationExpired(ctx, expiredReservation); err != nil {
 			log.Warn().
 				Str("reservation_id", expiredReservation.Id.String()).
 				Err(err).

@@ -38,7 +38,6 @@ type PaymentCapturedEvent struct {
 	ReservationInfo reservationInfo `json:"reservation_info"`
 
 	// Only used for confirm events that end up in DLQ
-	CacheCleared  bool      `json:"cache_cleared"`
 	ConsignmentID string    `json:"consignment_id"` // Marks as cancelled
 	PaymentID     string    `json:"payment_id"`     // Refund payment
 	SagaStartedAt time.Time `json:"saga_started_at"`

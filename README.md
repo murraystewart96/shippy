@@ -58,7 +58,7 @@ curl -X POST http://localhost:8080/v1/consignments \
     ]
   }'
 
-curl -s -X POST http://localhost:8080/v1/consignments/confirm/704edb41-3f55-40e3-b11d-c558d7f04cda \  -H "x-token:  
+curl -s -X POST http://localhost:8080/v1/consignments/confirm/af1691f8-a4e7-4104-b378-491091bad1fc \  -H "x-token:  
 
 curl -s http://localhost:8080/v1/consignments \       -H "x-token:   
 
@@ -204,14 +204,9 @@ and then publish the event before marking the event as published in the DB. As s
 Talk about everysec in redis and how there is potential reservation loss. We would handle this by
 monitoring metrics for reservations and run manual reconciliaiton job if neccessary.
 
-Expired reservation with captured payments but no paymentID because atomic transaction after payment capture failed.
 
-Capture succeeds (sync call)
-DB goes down — atomic transaction fails, payment_id not written
-Kafka retries, but DB is still down
-Reservation TTL expires
-handleExpiredReservationEvent fires — status pending, payment_auth_id present, payment_id absent
-Compensation logic sees "authorised, not captured" → voids — but the payment was actually captured
+
+
 
 
 
@@ -255,9 +250,10 @@ Then think about reconcilliation and event sourcing. By this point we should hav
 
 Review alternatives to this microservice pattern. what are the trade offs.
 
-Payment refunds. known limitation if we capture payment and then broker goes down and reservation expires
 
 Think about what happens in major failure cases. if a particular service was to go down for a long time. (like the cache for example)
+
+OAuth 2.0
 
 
 ###
@@ -266,14 +262,6 @@ For this project i have built on the tutorial series https://web.archive.org/web
 
 The tutorial provided a basic distributed shipping application. The main business logic was a user would create consignments and vessels would be assigned that could handle the required capacity of the shipment.
 
-
-Describe what the system does CS -> RS -> VS
-Describe flow of actions and events
-Describe confirmation SAGA. Successful flow and compensating actions
-Describe design descisions. At least once delivery. Idempotent consumers (redis cache lock, vessel actions, payment key).
-Describe steps taken to handle stuck SAGAs. From a business perspective we want to guarantee that expired reservations are released, and once a payment is captured that the consignment gets confirmed or the payment is refunded if confirmation fails.
-What measures do we take to try and guarantee these. What are the last resort fallbacks?
-DLQ, reconcilliation job etc
 
 NOTE PRODUCTION CONCERNS
 
@@ -297,3 +285,80 @@ When i come back
   - outbox pattern and lock
 
 - add observability
+
+The full production stack in one view:
+
+Kubernetes          — orchestration, discovery, health
+Istio               — network observability, mTLS, traffic control
+Prometheus+Grafana  — metrics and alerting
+Loki+Grafana        — logs
+Jaeger/Tempo        — traces
+OpenTelemetry SDK   — application instrumentation
+
+
+
+
+
+
+
+
+
+
+The project builds on this tutorial series - https://web.archive.org/web/20220124115000/https://ewanvalentine.io/microservices-in-golang-part-1/.
+
+The tutorial creates a basic implementation of a microservice shipping application made up of a consignment and vessel service. Consignments are created and assigned to vessels with enough capacity. My addition was to build the payment flow by adding a payment and reservation service. The payment service is a simple mock implementation of something like stripe. The main piece of work was the reservation service and the changes made to the consignment service and vessel service.
+
+The obvious need for the reservation service is that a user may create a consignmnet, it gets assigned to a vessel but then the payment is never made or fails. As such we need to be able to reserve, confirm and release capacity on vessels. 
+
+When creating a consignment the a reservation is made on a vessel. The reservation has a TTL and if the consignment is not confirmed within that window the reservation is released from the vessel.
+
+The first design decision was the storage type for the reservation service. I decided to use redis because it has built in TTL functionality with expired entries being removed from the cache. As such each reservation is stored in the cache as two entries. One entry for reservation id and the other entry for the reservation data itself. The data would have a longer TTL than the id entry. When an id entry is no longer present in the cache it signals that the entry has expired. We then use the reservation data entry to release the reservaton. NOTE redis is configured with AOF so and syncs to file every second so the reservations are pretty robust.
+
+Handling reservation events.
+
+I decided to use events for handling reservation events (confirm or release). This was for a couple reasons. First kafka provides reservation data durability. If for example the cleanup job that releases expired reservations kept failing to release a reservation, once the reservation data had expired from the cache we would no longer have that reservation data. We want to take all the neccessary precautions to avoid failing to release a reservation because thats valuable space that can no longer be used on the vessel. Furthermore, the consignment service needs to asynchronously confirm reservations so it made sense to handle both confirms and releases in the same manner through events. 
+
+Issues with events 
+
+Using events came with its own design decisions. Kafka by default gaurantees at least once delivery which is what we need to ensure that reservation events are handled. However we don't want to double process release or confirm events as they modify the vessel capacity. Without changing the logic in the vessel service I decided to make so that reservations can only be processed once. The determinent of whether a reseravtion has been processed yet or not is whether its data entry is still in the cache. So if a release of confirm event is being processed it first tries to delete the reservation data from the cache. This is an atomic delete. The first event to delete the entry gets to process the event. The others see there is nothing to delete and return. This makes the cache idempotent. NOTE: There are two retry mechanisms at play for kafka events here. If we want kafka to replay the event we simply return an error from the handler and kafka will retry. If however state has changed in the processing of the event that needs to be persisted to the replay, we will capture that state in a new event and publish it. In the cache example, we might clear the cache and then fail when releasing vessel capacity. In this case we mark the event as cache cleared and republish so on the replay the cache lock check is skipped.
+
+Event durability.
+
+Here i am going to discuss some design decisions that were made, why they were made and why they might have been wrong. Still thinking about guranteeing at least once delivery i was concerned about what happens if the kafka broker is down for long enough that the reservation data entry also expired without the release event ever being published. To mitigate this i used the outbox pattern so that events would be persisted in the database before being published. However this shifts the dependancy from kafka to the database. Its probably unlikely that the broker or the database would be unoperational for longer than the delta between the reservation expiry and the reservation data expiry. Regardless, the choice made at the time was to bet on the database and use the outbox pattern. However this lead me to realise that i probably would have been better of just using a database rather than the cache in the first place. I am essentially adding a database outbox pattern to guarantee durability that a reservation database would have given out of the box. If I were to redesign i would just opt for the database and i would not bother using the outbox pattern in the reservation service. The outbox pattern is used to good effect in the consignment service but we will get to that later. 
+
+With that said lets discuss the outbox pattern and issues it introduced. The outbox poller reads unpublished events from the outbox, publishes them to kafka and then marks the event as published. We still have to consider duplicate events here. If we publish the event but fail to mark it as published then the poller will publish it again next time around. In the case that the event being published is a reservation retry event with cache cleared set to true, it will skip the cache check and call the vessel service. So while the cache check gave some degree of idempotency, it wasn't complete. This lead me to the understanding that all event consumsers should be idempotent. To achieve this i added the following - The vessel service records each capacity operation (reserve, release, confirm) in a `capacity_operations` collection with a unique compound index on `(reservation_id, operation)`. Any duplicate call for the same reservation and operation is silently ignored. This is the final backstop.
+
+The cache check is still useful as it catches most duplicates early, preventing unecessary processing and requests.
+
+Another note on the outbox pattern. The outbox publisher reads unpublished events from Postgres, publishes them to Kafka, then marks them as published. Under a single instance this is safe. With multiple instances, two publishers could read the same rows simultaneously and publish duplicates before either marks them as published.
+
+To prevent this, rows are claimed with a **30 second lease** using `SELECT FOR UPDATE SKIP LOCKED`. The first instance to acquire the lock owns the batch for 30 seconds. Other instances skip locked rows entirely.
+
+The publisher is given a **20 second context deadline** — a hard outer bound ensuring it completes well within the lease window. If the deadline is exceeded, remaining events are left unpublished and retried on the next tick.
+
+This project builds on a tutorial series that implements a basic microservice shipping application with a consignment and vessel service. My extension adds a full payment flow via a payment service and reservation service. The payment service is a mock implementation modelled on something like Stripe. The main engineering work is in the reservation service, the changes it drove in the consignment and vessel services, and the implementation of the confirm consignment SAGA.
+
+Reservation Service
+The problem. When a consignment is created, vessel capacity must be held against it before payment is confirmed. If payment fails or times out, that capacity must be released. This is a two-phase resource allocation problem: reserve optimistically, then confirm or release based on the payment outcome. Reservations have a TTL — if the consignment isn't confirmed within the window, capacity is returned automatically.
+
+Storage. Redis is a natural fit for TTL-based expiry. Each reservation is stored as two entries:
+
+A short-lived ID entry that defines the reservation lifetime
+A longer-lived data entry holding the vessel ID and capacity figures needed to execute a release
+When the ID entry expires, the reservation is void. Redis is configured with AOF persistence syncing every second.
+
+Why events. Confirm and release operations are handled via Kafka events rather than synchronous RPC. The core reason is durability: if the cleanup job repeatedly fails to release an expired reservation, the data eventually expires from the cache and the release opportunity is lost permanently. Modelling the intent to release as a Kafka event means it survives beyond the cache TTL. The consignment service also needs to trigger confirms asynchronously, so both paths follow the same event-driven model.
+
+Idempotency. Kafka's at-least-once delivery guarantee means consumers must tolerate duplicate events — a double-processed confirm or release would corrupt vessel capacity. Three layers of protection are in place:
+
+Cache as distributed lock. On arrival, the handler atomically deletes the reservation data entry. The first event to delete it proceeds; duplicates find nothing and return early.
+
+State-carrying events. If the handler clears the cache then fails before completing the vessel call, a redeliver hits an empty cache and exits early — skipping the vessel call. The fix is to publish a new event with cache_cleared: true on failure, bypassing the cache check on replay and preserving processing state across retry boundaries.
+
+Consumer idempotency. The complete guarantee comes from idempotency at the vessel service. Every capacity operation is recorded in a capacity_operations collection with a unique compound index on (reservation_id, operation). Any duplicate is silently ignored. The cache check still catches most duplicates early, but correctness is guaranteed by the idempotent consumer — not the cache.
+
+Event durability — and an honest design reflection. There is a failure window where the broker is unavailable for longer than the delta between the ID entry and data entry TTLs — a release event may never be published and the data needed to construct it is gone. To close this I introduced the transactional outbox pattern — events are written to Postgres before being published to Kafka, surviving broker downtime.
+
+In practice this shifted the dependency from Kafka to the database. But implementing it revealed a more fundamental issue: I was adding a persistent store to compensate for the cache's lack of durability. The right design is a database from the start — reservations stored in Postgres with a valid_until column, expiry handled by a scheduled scan. That gives durability natively without the cache-plus-outbox complexity. If redesigning, I would drop Redis and drop the outbox in the reservation service entirely. The outbox earns its place in the consignment service, which I'll cover next.
+
+Outbox at scale. With multiple service instances, two pollers could read the same unpublished rows simultaneously and produce duplicates before either marks them as published. Rows are claimed with a 30-second lease via SELECT FOR UPDATE SKIP LOCKED — the first instance to acquire the lock owns the batch, others skip locked rows. The publisher runs under a 20-second context deadline as a hard bound within the lease window.

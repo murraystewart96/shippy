@@ -105,8 +105,8 @@ func (h *Handler) ConfirmConsignment(ctx context.Context, req *pb.ConfirmRequest
 	}
 
 	if err := h.publishPaymentAuthorised(ctx, paymentResponse.AuthId, consignment, sagaStartedAt); err != nil {
-		//TODO: maybe we should do this - cancelConsignment(ctx, consignment.ID, h.repository)
-
+		cancelConsignment(ctx, consignment.ID, h.repository)
+		voidPayment(ctx, paymentResponse.AuthId, h.paymentCli)
 		return nil, fmt.Errorf("failed to confirm consignment: %w", err)
 	}
 
@@ -135,8 +135,6 @@ func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID st
 	eventJSON, err := json.Marshal(confirmationEvent)
 	if err != nil {
 		log.Printf("ALERT: failed to marshal confirmation event for consignment %s: %v", consignment.ID, err)
-		cancelConsignment(ctx, consignment.ID, h.repository)
-		voidPayment(ctx, paymentAuthID, h.paymentCli)
 		return status.Error(codes.Internal, "failed to process confirmation")
 	}
 

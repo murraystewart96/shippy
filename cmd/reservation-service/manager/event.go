@@ -84,7 +84,7 @@ type reservationExpiredPayload struct {
 	Containers    int    `json:"containers"`
 }
 
-func (m *Manager) scheduleReservationExpired(ctx context.Context, r *storage.ReservationInfo) error {
+func (m *Manager) publishReservationExpired(ctx context.Context, r *storage.ReservationInfo) error {
 	payload, err := json.Marshal(reservationExpiredPayload{
 		ReservationID: r.Id.String(),
 		VesselID:      r.VesselID.String(),
@@ -102,7 +102,7 @@ func (m *Manager) scheduleReservationExpired(ctx context.Context, r *storage.Res
 	})
 }
 
-func (m *Manager) scheduleReservationConfirmed(ctx context.Context, event *CapacityEvent) error {
+func (m *Manager) publishReservationConfirmed(ctx context.Context, event *CapacityEvent) error {
 	payload, err := json.Marshal(reservationConfirmedPayload{
 		ReservationID: event.ReservationInfo.Id.String(),
 		ConsignmentID: event.ConsignmentID,
@@ -301,6 +301,11 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 			Int("retry_count", event.RetryCount).
 			Msg("Vessel Capacity call failed — scheduling retry")
 		if err := m.publishRetryEvent(ctx, &event); err != nil {
+			log.Error().
+				Str("reservation_id", reservationID).
+				Str("consignment_id", event.ConsignmentID).
+				Err(err).
+				Msg("ALERT: failed to schedule reservation confirmed event — manual intervention required")
 			return fmt.Errorf("failed to schedule release retry: %w", err)
 		}
 
@@ -319,7 +324,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 
 	if event.Action == CONFIRM {
 		// TODO: add retry
-		if err := m.scheduleReservationConfirmed(ctx, &event); err != nil {
+		if err := m.publishReservationConfirmed(ctx, &event); err != nil {
 			log.Error().
 				Str("reservation_id", reservationID).
 				Str("consignment_id", event.ConsignmentID).
@@ -360,7 +365,7 @@ func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []by
 			log.Error().Str("reservation_id", reservationID).Err(err).Msg("ALERT: failed to release capacity after confirm exhaustion — manual intervention required")
 		}
 
-		if err := m.notifyConfirmationFailed(ctx, &event); err != nil {
+		if err := m.publishConfirmationFailed(ctx, &event); err != nil {
 			log.Error().
 				Str("reservation_id", reservationID).
 				Str("consignment_id", event.ConsignmentID).
@@ -381,7 +386,7 @@ func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []by
 	return nil
 }
 
-func (m *Manager) notifyConfirmationFailed(ctx context.Context, event *CapacityEvent) error {
+func (m *Manager) publishConfirmationFailed(ctx context.Context, event *CapacityEvent) error {
 	payload := FailedConfirmationEvent{
 		PaymentCaptured: true,
 		CacheCleared:    true,
