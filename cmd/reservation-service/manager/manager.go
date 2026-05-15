@@ -29,7 +29,7 @@ const (
 	ConsignmentConfirmationFailedTopic = "consignment.confirmation.failed"
 	ReservationConfirmedTopic          = "reservation.confirmed"
 
-	maxRetries = 3
+	MaxRetries = 3
 )
 
 type Manager struct {

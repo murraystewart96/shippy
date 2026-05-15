@@ -2,16 +2,17 @@ package manager
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/murraystewart96/shippy/consignment-service/storage"
+	eventspb "github.com/murraystewart96/shippy/proto/events"
 	"github.com/murraystewart96/shippy/proto/payment"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -22,9 +23,9 @@ const (
 	testAuthID        = "auth-id"
 )
 
-func mustMarshalEvent(t *testing.T, v any) []byte {
+func mustMarshalProto(t *testing.T, m proto.Message) []byte {
 	t.Helper()
-	b, err := json.Marshal(v)
+	b, err := proto.Marshal(m)
 	require.NoError(t, err)
 	return b
 }
@@ -57,21 +58,20 @@ func TestHandlePaymentAuthorisedEvent(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
-		PaymentAuthID: testAuthID,
-		ConsignmentID: testConsignmentID,
-		ReservationID: testReservationID,
-		VesselID:      testVesselID,
+	event := &eventspb.PaymentAuthorisedEvent{
+		PaymentAuthId: testAuthID,
+		ConsignmentId: testConsignmentID,
+		ReservationId: testReservationID,
+		VesselId:      testVesselID,
 		Weight:        100,
 		Containers:    1,
 	}
 
-	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, paymentCli.captureCalls)
 
-	// PaymentCaptured event only exists in happy path
 	topics := pendingTopics(t, outbox)
 	assert.Contains(t, topics, PaymentCapturedTopic)
 	assert.Equal(t, 1, repo.updateCalls)
@@ -93,20 +93,19 @@ func TestHandlePaymentAuthorisedEvent_SkipsCapture_WhenAlreadyCaptured(t *testin
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
+	event := &eventspb.PaymentAuthorisedEvent{
 		PaymentCaptured: true,
-		PaymentID:       testPaymentID,
-		ConsignmentID:   testConsignmentID,
-		ReservationID:   testReservationID,
-		VesselID:        testVesselID,
+		PaymentId:       testPaymentID,
+		ConsignmentId:   testConsignmentID,
+		ReservationId:   testReservationID,
+		VesselId:        testVesselID,
 	}
 
-	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, paymentCli.captureCalls)
 
-	// PaymentCaptured event only exists in happy path
 	topics := pendingTopics(t, outbox)
 	assert.Contains(t, topics, PaymentCapturedTopic)
 	assert.Equal(t, 1, repo.updateCalls)
@@ -128,18 +127,17 @@ func TestHandlePaymentAuthorisedEvent_PaymentFail(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
-		PaymentAuthID: testAuthID,
-		ConsignmentID: testConsignmentID,
+	event := &eventspb.PaymentAuthorisedEvent{
+		PaymentAuthId: testAuthID,
+		ConsignmentId: testConsignmentID,
 	}
 
-	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	pending, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
 	require.NoError(t, err)
 
-	// PaymentAuthorisedEvent should be rescheduled
 	require.Len(t, pending, 1)
 	assert.Equal(t, ConsignmentPaymentAuthorisedTopic, pending[0].Topic)
 }
@@ -169,12 +167,12 @@ func TestHandlePaymentAuthorisedEvent_PaymentCapturedEventFails_SchedulesRetry(t
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
-		PaymentAuthID: testAuthID,
-		ConsignmentID: testConsignmentID,
+	event := &eventspb.PaymentAuthorisedEvent{
+		PaymentAuthId: testAuthID,
+		ConsignmentId: testConsignmentID,
 	}
 
-	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	assert.NoError(t, err)
 
 	assert.Equal(t, 1, paymentCli.captureCalls)
@@ -185,8 +183,8 @@ func TestHandlePaymentAuthorisedEvent_PaymentCapturedEventFails_SchedulesRetry(t
 	assert.Equal(t, ConsignmentPaymentAuthorisedTopic, pending[0].Topic)
 
 	// Retry event carries PaymentCaptured=true so capture is skipped on replay
-	var retryEvent ConfirmationEvent
-	require.NoError(t, json.Unmarshal(pending[0].Payload, &retryEvent))
+	var retryEvent eventspb.PaymentAuthorisedEvent
+	require.NoError(t, proto.Unmarshal(pending[0].Payload, &retryEvent))
 	assert.True(t, retryEvent.PaymentCaptured)
 }
 
@@ -215,20 +213,20 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	eventJSON := mustMarshalEvent(t, &ConfirmationEvent{
-		PaymentAuthID: testAuthID,
-		ConsignmentID: testConsignmentID,
+	eventBytes := mustMarshalProto(t, &eventspb.PaymentAuthorisedEvent{
+		PaymentAuthId: testAuthID,
+		ConsignmentId: testConsignmentID,
 	})
 
 	for i := 0; i <= maxRetries; i++ {
-		err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(testConsignmentID), eventJSON)
+		err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte(testConsignmentID), eventBytes)
 		require.NoError(t, err)
 
 		events, err := outbox.GetPendingEvents(t.Context(), 30*time.Second)
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 
-		eventJSON = events[0].Payload
+		eventBytes = events[0].Payload
 	}
 
 	assert.Equal(t, 1, paymentCli.captureCalls)
@@ -239,11 +237,11 @@ func TestHandlePaymentAuthorisedEvent_ExhaustRetries(t *testing.T) {
 	assert.Equal(t, ConsignmentConfirmationFailedTopic, pending[0].Topic)
 }
 
-func TestHandlePaymentAuthorisedEvent_InvalidJSON(t *testing.T) {
+func TestHandlePaymentAuthorisedEvent_InvalidProto(t *testing.T) {
 	mgr, err := New(nil, nil, nil, nil, nil, nil, &mockMetrics{}, nil, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte("key"), []byte("not valid json"))
+	err = mgr.handlePaymentAuthorisedEvent(t.Context(), []byte("key"), []byte("not valid proto"))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to unmarshal event")
 }
@@ -265,15 +263,15 @@ func TestHandleFailedConfirmationEvent_RefundPayment(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
+	event := &eventspb.ConsignmentConfirmationFailedEvent{
 		PaymentCaptured: true,
-		PaymentID:       testPaymentID,
-		ConsignmentID:   testConsignmentID,
-		ReservationID:   testReservationID,
-		VesselID:        testVesselID,
+		PaymentId:       testPaymentID,
+		ConsignmentId:   testConsignmentID,
+		ReservationId:   testReservationID,
+		VesselId:        testVesselID,
 	}
 
-	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, paymentCli.refundCalls)
@@ -297,15 +295,15 @@ func TestHandleFailedConfirmationEvent_VoidPayment(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
+	event := &eventspb.ConsignmentConfirmationFailedEvent{
 		PaymentCaptured: false,
-		PaymentAuthID:   testAuthID,
-		ConsignmentID:   testConsignmentID,
-		ReservationID:   testReservationID,
-		VesselID:        testVesselID,
+		PaymentAuthId:   testAuthID,
+		ConsignmentId:   testConsignmentID,
+		ReservationId:   testReservationID,
+		VesselId:        testVesselID,
 	}
 
-	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, paymentCli.voidCalls)
@@ -329,15 +327,15 @@ func TestHandleFailedConfirmationEvent_VoidFails_StillCancels(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
+	event := &eventspb.ConsignmentConfirmationFailedEvent{
 		PaymentCaptured: false,
-		PaymentAuthID:   testAuthID,
-		ConsignmentID:   testConsignmentID,
-		ReservationID:   testReservationID,
-		VesselID:        testVesselID,
+		PaymentAuthId:   testAuthID,
+		ConsignmentId:   testConsignmentID,
+		ReservationId:   testReservationID,
+		VesselId:        testVesselID,
 	}
 
-	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	assert.Equal(t, backoffAttempts+1, paymentCli.voidCalls)
@@ -360,15 +358,15 @@ func TestHandleFailedConfirmationEvent_RefundFails_StillCancels(t *testing.T) {
 	mgr, err := New(nil, nil, nil, outbox, &mockTransactor{}, paymentCli, &mockMetrics{}, repo, Config{OutboxInterval: 10})
 	require.NoError(t, err)
 
-	event := &ConfirmationEvent{
+	event := &eventspb.ConsignmentConfirmationFailedEvent{
 		PaymentCaptured: true,
-		PaymentID:       testPaymentID,
-		ConsignmentID:   testConsignmentID,
-		ReservationID:   testReservationID,
-		VesselID:        testVesselID,
+		PaymentId:       testPaymentID,
+		ConsignmentId:   testConsignmentID,
+		ReservationId:   testReservationID,
+		VesselId:        testVesselID,
 	}
 
-	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentID), mustMarshalEvent(t, event))
+	err = mgr.handleFailedConfirmationEvent(t.Context(), []byte(event.ConsignmentId), mustMarshalProto(t, event))
 	require.NoError(t, err)
 
 	assert.Equal(t, backoffAttempts+1, paymentCli.refundCalls)

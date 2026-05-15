@@ -4,7 +4,7 @@ CREATE TABLE outbox (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     topic VARCHAR NOT NULL,
     key VARCHAR NOT NULL,
-    payload JSONB NOT NULL,
+    payload BYTEA NOT NULL,
     trace_context JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     published_at TIMESTAMP,

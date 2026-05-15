@@ -34,9 +34,10 @@ type EventHandlers map[string]EventHandler
 
 func NewConsumer(cfg *ConsumerConfig) (*Consumer, error) {
 	client, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers": cfg.BootstrapServers,
-		"group.id":          cfg.GroupID,
-		"auto.offset.reset": cfg.OffsetReset,
+		"bootstrap.servers":  cfg.BootstrapServers,
+		"group.id":           cfg.GroupID,
+		"auto.offset.reset":  cfg.OffsetReset,
+		"enable.auto.commit": false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer: %w", err)
@@ -79,7 +80,7 @@ func (c *Consumer) StartConsuming(ctx context.Context, topicHandlers EventHandle
 			log.Info().Str("topic", *message.TopicPartition.Topic).Msg("consuming event...")
 
 			if handler, ok := topicHandlers[*message.TopicPartition.Topic]; ok {
-				c.handleMessage(message, handler)
+				c.handleMessage(ctx, message, handler)
 			} else {
 				log.Warn().Msgf("no handler for topic: %s", *message.TopicPartition.Topic)
 			}
@@ -87,8 +88,8 @@ func (c *Consumer) StartConsuming(ctx context.Context, topicHandlers EventHandle
 	}
 }
 
-func (c *Consumer) handleMessage(message *kafka.Message, handler EventHandler) {
-	remoteCtx := otel.GetTextMapPropagator().Extract(context.Background(), NewHeaderCarrier(&message.Headers))
+func (c *Consumer) handleMessage(ctx context.Context, message *kafka.Message, handler EventHandler) {
+	remoteCtx := otel.GetTextMapPropagator().Extract(ctx, NewHeaderCarrier(&message.Headers))
 
 	topic := *message.TopicPartition.Topic
 	msgCtx, span := otel.Tracer("kafka/consumer").Start(remoteCtx, topic+" process",
@@ -104,7 +105,12 @@ func (c *Consumer) handleMessage(message *kafka.Message, handler EventHandler) {
 	if err := handler(msgCtx, message.Key, message.Value); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Str("topic", topic).Msg("handler failed")
+		log.Error().Err(err).Str("topic", topic).Msg("handler failed — offset not committed, message will be redelivered")
+		return
+	}
+
+	if _, err := c.client.CommitMessage(message); err != nil {
+		log.Error().Err(err).Str("topic", topic).Msg("failed to commit offset — message will be redelivered")
 	}
 }
 

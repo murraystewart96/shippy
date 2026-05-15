@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -10,11 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/murraystewart96/shippy/pkg/kafka"
+	eventspb "github.com/murraystewart96/shippy/proto/events"
 	"github.com/murraystewart96/shippy/proto/vessel"
 	"github.com/murraystewart96/shippy/reservation-service/manager"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestHandlePaymentCapturedEvent_HappyPath(t *testing.T) {
@@ -35,9 +36,13 @@ func TestHandlePaymentCapturedEvent_HappyPath(t *testing.T) {
 	err := s.cache.Store(ctx, reservation.Id.String(), reservation)
 	require.NoError(t, err)
 
-	event := manager.CapacityEvent{
-		Action:          manager.CONFIRM,
-		ReservationInfo: reservation,
+	event := &eventspb.PaymentCapturedEvent{
+		ReservationInfo: &eventspb.ReservationInfo{
+			Id:                 reservation.Id.String(),
+			VesselId:           reservation.VesselID.String(),
+			NumberOfContainers: int32(reservation.NumberOfContainers),
+			Weight:             int32(reservation.Weight),
+		},
 	}
 
 	s.publish(t, manager.PaymentCapturedTopic, reservation.Id.String(), event)
@@ -80,16 +85,20 @@ func TestHandleFailedPaymentCapturedEvent_RefundAndCancel(t *testing.T) {
 	err := s.cache.Store(ctx, reservation.Id.String(), reservation)
 	require.NoError(t, err)
 
-	event := manager.CapacityEvent{
-		Action:          manager.CONFIRM,
-		ReservationInfo: reservation,
-		ConsignmentID:   "test-consignment-id",
-		PaymentID:       "test-payment-id",
+	event := &eventspb.PaymentCapturedEvent{
+		ReservationInfo: &eventspb.ReservationInfo{
+			Id:                 reservation.Id.String(),
+			VesselId:           reservation.VesselID.String(),
+			NumberOfContainers: int32(reservation.NumberOfContainers),
+			Weight:             int32(reservation.Weight),
+		},
+		ConsignmentId: "test-consignment-id",
+		PaymentId:     "test-payment-id",
 	}
 
 	s.publish(t, manager.PaymentCapturedTopic, reservation.Id.String(), event)
 
-	var receivedEvent manager.FailedConfirmationEvent
+	var receivedEvent eventspb.ConsignmentConfirmationFailedEvent
 	consignmentConfirmationFailedReceived := make(chan struct{})
 
 	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
@@ -107,7 +116,7 @@ func TestHandleFailedPaymentCapturedEvent_RefundAndCancel(t *testing.T) {
 		defer wg.Done()
 		_ = consumer.StartConsuming(ctx, kafka.EventHandlers{
 			manager.ConsignmentConfirmationFailedTopic: func(ctx context.Context, key, value []byte) error {
-				_ = json.Unmarshal(value, &receivedEvent)
+				_ = proto.Unmarshal(value, &receivedEvent)
 				close(consignmentConfirmationFailedReceived)
 				return nil
 			},
@@ -134,15 +143,15 @@ func TestHandleFailedPaymentCapturedEvent_RefundAndCancel(t *testing.T) {
 
 	assert.True(t, receivedEvent.PaymentCaptured)
 	assert.True(t, receivedEvent.CacheCleared)
-	assert.Equal(t, "test-payment-id", receivedEvent.PaymentID)
-	assert.Equal(t, "test-consignment-id", receivedEvent.ConsignmentID)
+	assert.Equal(t, "test-payment-id", receivedEvent.PaymentId)
+	assert.Equal(t, "test-consignment-id", receivedEvent.ConsignmentId)
 
 	assert.Eventually(t, func() bool {
 		s.vesselSvc.mu.Lock()
 		confirmCalls := s.vesselSvc.confirmCapacityCalls
 		releaseCalls := s.vesselSvc.releaseCapacityCalls
 		s.vesselSvc.mu.Unlock()
-		return confirmCalls == 3 && releaseCalls == 1
+		return confirmCalls == 3*(manager.MaxRetries+1) && releaseCalls == 1
 	}, 15*time.Second, 500*time.Millisecond)
 
 	// After Eventually, assert cache was cleared

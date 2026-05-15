@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package events;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/murraystewart96/shippy/proto/events";
+
+message ReservationInfo {
+    string id = 1;
+    string vessel_id = 2;
+    string consignment_id = 3;
+    int32 number_of_containers = 4;
+    int32 weight = 5;
+}
+
+message PaymentAuthorisedEvent {
+    string consignment_id = 1;
+    string reservation_id = 2;
+    string vessel_id = 3;
+    string payment_auth_id = 4;
+    string idempotency_key = 5;
+    int32 weight = 6;
+    int32 containers = 7;
+    int32 retry_count = 8;
+    bool cache_cleared = 9;
+    bool payment_captured = 10;
+    string payment_id = 11;
+    google.protobuf.Timestamp saga_started_at = 12;
+}
+
+message PaymentCapturedEvent {
+    ReservationInfo reservation_info = 1;
+    string consignment_id = 2;
+    string payment_id = 3;
+    google.protobuf.Timestamp saga_started_at = 4;
+}
+
+message ReservationConfirmedEvent {
+    string reservation_id = 1;
+    string consignment_id = 2;
+    google.protobuf.Timestamp saga_started_at = 3;
+}
+
+message ReservationExpiredEvent {
+    string reservation_id = 1;
+    string vessel_id = 2;
+    string consignment_id = 3;
+    int32 weight = 4;
+    int32 containers = 5;
+}
+
+message ConsignmentConfirmationFailedEvent {
+    string consignment_id = 1;
+    string reservation_id = 2;
+    string vessel_id = 3;
+    string payment_id = 4;
+    int32 weight = 5;
+    int32 containers = 6;
+    bool cache_cleared = 7;
+    bool payment_captured = 8;
+    string payment_auth_id = 9;
+    google.protobuf.Timestamp saga_started_at = 10;
+}
+
+enum CapacityAction {
+    CAPACITY_ACTION_UNSPECIFIED = 0;
+    CAPACITY_ACTION_RELEASE = 1;
+    CAPACITY_ACTION_CONFIRM = 2;
+}
+
+message CapacityEvent {
+    CapacityAction action = 1;
+    ReservationInfo reservation_info = 2;
+    bool cache_cleared = 3;
+    int32 retry_count = 4;
+    string consignment_id = 5;
+    string payment_id = 6;
+    google.protobuf.Timestamp saga_started_at = 7;
+}

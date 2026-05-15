@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"os"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
 	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	tcKafka "github.com/testcontainers/testcontainers-go/modules/kafka"
 	tcMongo "github.com/testcontainers/testcontainers-go/modules/mongodb"
 	mongoDriver "go.mongodb.org/mongo-driver/mongo"
@@ -214,9 +214,9 @@ func (s *suite) newConsignmentClient(t *testing.T) consignmentpb.ConsignmentServ
 }
 
 // publish sends a message directly to a Kafka topic.
-func (s *suite) publish(t *testing.T, topic, key string, v any) {
+func (s *suite) publish(t *testing.T, topic, key string, v proto.Message) {
 	t.Helper()
-	payload, err := json.Marshal(v)
+	payload, err := proto.Marshal(v)
 	require.NoError(t, err)
 	require.NoError(t, s.producer.Produce(context.Background(), topic, []byte(key), payload, nil))
 }

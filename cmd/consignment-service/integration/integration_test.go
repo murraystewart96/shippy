@@ -10,6 +10,7 @@ import (
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	"github.com/murraystewart96/shippy/pkg/kafka"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
+	eventspb "github.com/murraystewart96/shippy/proto/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
@@ -114,11 +115,11 @@ func TestHandleConfirmationEvent_HappyPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	event := manager.ConfirmationEvent{
-		PaymentAuthID: "auth-id",
-		ConsignmentID: consignmentID,
-		ReservationID: "reservation-id",
-		VesselID:      "vessel-id",
+	event := &eventspb.PaymentAuthorisedEvent{
+		PaymentAuthId: "auth-id",
+		ConsignmentId: consignmentID,
+		ReservationId: "reservation-id",
+		VesselId:      "vessel-id",
 		Weight:        100,
 		Containers:    1,
 	}
@@ -191,12 +192,12 @@ func TestHandleFailedConfirmationEvent_RefundAndCancel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	event := manager.ConfirmationEvent{
+	event := &eventspb.ConsignmentConfirmationFailedEvent{
 		PaymentCaptured: true,
-		PaymentID:       "test-payment-id",
-		ConsignmentID:   consignmentID,
-		ReservationID:   "reservation-id",
-		VesselID:        "vessel-id",
+		PaymentId:       "test-payment-id",
+		ConsignmentId:   consignmentID,
+		ReservationId:   "reservation-id",
+		VesselId:        "vessel-id",
 		Weight:          100,
 		Containers:      1,
 	}

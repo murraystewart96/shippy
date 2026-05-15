@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/murraystewart96/shippy/consignment-service/storage"
 	"github.com/murraystewart96/shippy/consignment-service/storage/mongo"
 	pb "github.com/murraystewart96/shippy/proto/consignment"
+	eventspb "github.com/murraystewart96/shippy/proto/events"
 	paymentpb "github.com/murraystewart96/shippy/proto/payment"
 	reservepb "github.com/murraystewart96/shippy/proto/reservation"
 
@@ -19,6 +19,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Handler struct {
@@ -122,17 +124,17 @@ func (h *Handler) GetConsignments(ctx context.Context, _ *pb.GetRequest) (*pb.Re
 }
 
 func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID string, consignment *storage.Consignment, sagaStartedAt time.Time) error {
-	confirmationEvent := &manager.ConfirmationEvent{
-		PaymentAuthID: paymentAuthID,
-		ReservationID: consignment.ReservationID,
-		ConsignmentID: consignment.ID,
-		VesselID:      consignment.VesselID,
-		Weight:        int(consignment.Weight),
-		Containers:    len(consignment.Containers),
-		SagaStartedAt: sagaStartedAt,
+	event := &eventspb.PaymentAuthorisedEvent{
+		PaymentAuthId: paymentAuthID,
+		ReservationId: consignment.ReservationID,
+		ConsignmentId: consignment.ID,
+		VesselId:      consignment.VesselID,
+		Weight:        consignment.Weight,
+		Containers:    int32(len(consignment.Containers)),
+		SagaStartedAt: timestamppb.New(sagaStartedAt),
 	}
 
-	eventJSON, err := json.Marshal(confirmationEvent)
+	payload, err := proto.Marshal(event)
 	if err != nil {
 		log.Printf("ALERT: failed to marshal confirmation event for consignment %s: %v", consignment.ID, err)
 		return status.Error(codes.Internal, "failed to process confirmation")
@@ -141,7 +143,7 @@ func (h *Handler) publishPaymentAuthorised(ctx context.Context, paymentAuthID st
 	if err = h.outbox.CreateEvent(ctx, &storage.OutboxEvent{
 		Key:     consignment.ID,
 		Topic:   manager.ConsignmentPaymentAuthorisedTopic,
-		Payload: eventJSON,
+		Payload: payload,
 	}); err != nil {
 		log.Printf("failed to write outbox event for consignment %s: %v", consignment.ID, err)
 		cancelConsignment(ctx, consignment.ID, h.repository)

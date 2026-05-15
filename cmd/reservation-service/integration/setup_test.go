@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/murraystewart96/shippy/pkg/kafka"
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
+	"google.golang.org/protobuf/proto"
 	"github.com/murraystewart96/shippy/reservation-service/config"
 	"github.com/murraystewart96/shippy/reservation-service/manager"
 	postgrespkg "github.com/murraystewart96/shippy/reservation-service/storage/postgres"
@@ -197,9 +197,9 @@ func (s *suite) newManager(t *testing.T, topics []string) *manager.Manager {
 }
 
 // publish sends a message directly to a Kafka topic.
-func (s *suite) publish(t *testing.T, topic, key string, v any) {
+func (s *suite) publish(t *testing.T, topic, key string, v proto.Message) {
 	t.Helper()
-	payload, err := json.Marshal(v)
+	payload, err := proto.Marshal(v)
 	require.NoError(t, err)
 	require.NoError(t, s.producer.Produce(context.Background(), topic, []byte(key), payload, nil))
 }

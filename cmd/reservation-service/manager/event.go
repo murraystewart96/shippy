@@ -2,12 +2,11 @@ package manager
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/google/uuid"
+	eventspb "github.com/murraystewart96/shippy/proto/events"
 	vesselpb "github.com/murraystewart96/shippy/proto/vessel"
 	"github.com/murraystewart96/shippy/reservation-service/storage"
 	"github.com/rs/zerolog/log"
@@ -15,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
 )
 
 const tracerName = "reservation-service"
@@ -22,100 +22,16 @@ const tracerName = "reservation-service"
 func backoffFn() backoff.BackOff {
 	return backoff.WithMaxRetries(backoff.NewExponentialBackOff(
 		backoff.WithInitialInterval(100*time.Millisecond),
-	), maxRetries)
+	), MaxRetries)
 }
 
-type EventAction int
+// --- Event handlers ---
 
-const (
-	RELEASE EventAction = iota
-	CONFIRM
-)
-
-func (a EventAction) String() string {
-	switch a {
-	case RELEASE:
-		return "release"
-	case CONFIRM:
-		return "confirm"
-	default:
-		return "unknown"
+func (m *Manager) processEvents(ctx context.Context) error {
+	if err := m.consumer.StartConsuming(ctx, m.eventHandlers); err != nil {
+		return fmt.Errorf("failed to start consumer: %w", err)
 	}
-}
-
-type FailedConfirmationEvent struct {
-	CacheCleared    bool      `json:"cache_cleared"`
-	PaymentCaptured bool      `json:"payment_captured"`
-	PaymentID       string    `json:"payment_id"`
-	ConsignmentID   string    `json:"consignment_id"`
-	ReservationID   string    `json:"reservation_id"`
-	VesselID        string    `json:"vessel_id"`
-	Weight          int       `json:"weight"`
-	Containers      int       `json:"containers"`
-	SagaStartedAt   time.Time `json:"saga_started_at"`
-}
-
-// CapacityEvent is RS-internal — used only for retry scheduling via the outbox.
-type CapacityEvent struct {
-	Action          EventAction             `json:"action"`
-	ReservationInfo storage.ReservationInfo `json:"reservation_info"`
-	CacheCleared    bool                    `json:"cache_cleared"`
-	RetryCount      int                     `json:"retry_count"`
-
-	// Only populated for confirm events that reach the DLQ.
-	ConsignmentID string    `json:"consignment_id"`
-	PaymentID     string    `json:"payment_id"`
-	SagaStartedAt time.Time `json:"saga_started_at"`
-}
-
-type reservationConfirmedPayload struct {
-	ReservationID string    `json:"reservation_id"`
-	ConsignmentID string    `json:"consignment_id"`
-	SagaStartedAt time.Time `json:"saga_started_at"`
-}
-
-// reservationExpiredPayload is the wire format for reservation.expired.
-// Both RS and CS consume this topic via separate consumer groups.
-type reservationExpiredPayload struct {
-	ReservationID string `json:"reservation_id"`
-	VesselID      string `json:"vessel_id"`
-	ConsignmentID string `json:"consignment_id"`
-	Weight        int    `json:"weight"`
-	Containers    int    `json:"containers"`
-}
-
-func (m *Manager) publishReservationExpired(ctx context.Context, r *storage.ReservationInfo) error {
-	payload, err := json.Marshal(reservationExpiredPayload{
-		ReservationID: r.Id.String(),
-		VesselID:      r.VesselID.String(),
-		ConsignmentID: r.ConsignmentID.String(),
-		Weight:        r.Weight,
-		Containers:    r.NumberOfContainers,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to marshal reservation expired event: %w", err)
-	}
-	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
-		Topic:   ReservationExpiredTopic,
-		Key:     r.Id.String(),
-		Payload: payload,
-	})
-}
-
-func (m *Manager) publishReservationConfirmed(ctx context.Context, event *CapacityEvent) error {
-	payload, err := json.Marshal(reservationConfirmedPayload{
-		ReservationID: event.ReservationInfo.Id.String(),
-		ConsignmentID: event.ConsignmentID,
-		SagaStartedAt: event.SagaStartedAt,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to marshal reservation confirmed event: %w", err)
-	}
-	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
-		Topic:   ReservationConfirmedTopic,
-		Key:     event.ConsignmentID,
-		Payload: payload,
-	})
+	return nil
 }
 
 func (m *Manager) handleReservationExpiredEvent(ctx context.Context, key, value []byte) error {
@@ -124,8 +40,8 @@ func (m *Manager) handleReservationExpiredEvent(ctx context.Context, key, value 
 	)
 	defer span.End()
 
-	var e reservationExpiredPayload
-	if err := json.Unmarshal(value, &e); err != nil {
+	var pb eventspb.ReservationExpiredEvent
+	if err := proto.Unmarshal(value, &pb); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal reservation expired event — manual intervention required")
@@ -133,31 +49,18 @@ func (m *Manager) handleReservationExpiredEvent(ctx context.Context, key, value 
 	}
 
 	span.SetAttributes(
-		attribute.String("reservation_id", e.ReservationID),
-		attribute.String("vessel_id", e.VesselID),
+		attribute.String("reservation_id", pb.ReservationId),
+		attribute.String("vessel_id", pb.VesselId),
 	)
 
-	rID, err := uuid.Parse(e.ReservationID)
-	if err != nil {
-		return fmt.Errorf("invalid reservation_id %q: %w", e.ReservationID, err)
-	}
-	vID, err := uuid.Parse(e.VesselID)
-	if err != nil {
-		return fmt.Errorf("invalid vessel_id %q: %w", e.VesselID, err)
-	}
-	cID, err := uuid.Parse(e.ConsignmentID)
-	if err != nil {
-		return fmt.Errorf("invalid consignment_id %q: %w", e.ConsignmentID, err)
-	}
-
-	event := CapacityEvent{
-		Action: RELEASE,
-		ReservationInfo: storage.ReservationInfo{
-			Id:                 rID,
-			VesselID:           vID,
-			ConsignmentID:      cID,
-			Weight:             e.Weight,
-			NumberOfContainers: e.Containers,
+	event := &eventspb.CapacityEvent{
+		Action: eventspb.CapacityAction_CAPACITY_ACTION_RELEASE,
+		ReservationInfo: &eventspb.ReservationInfo{
+			Id:                 pb.ReservationId,
+			VesselId:           pb.VesselId,
+			ConsignmentId:      pb.ConsignmentId,
+			Weight:             pb.Weight,
+			NumberOfContainers: pb.Containers,
 		},
 	}
 	if err := m.processCapacityEvent(ctx, event); err != nil {
@@ -169,37 +72,38 @@ func (m *Manager) handleReservationExpiredEvent(ctx context.Context, key, value 
 	return nil
 }
 
-func (m *Manager) processEvents(ctx context.Context) error {
-	if err := m.consumer.StartConsuming(ctx, m.eventHandlers); err != nil {
-		return fmt.Errorf("failed to start consumer: %w", err)
-	}
-	return nil
-}
-
-// Inbound handlers — unmarshal and delegate to process functions.
-
 func (m *Manager) handlePaymentCapturedEvent(ctx context.Context, key, value []byte) error {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "handlePaymentCapturedEvent",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
 
-	var event CapacityEvent
-	if err := json.Unmarshal(value, &event); err != nil {
+	var pb eventspb.PaymentCapturedEvent
+	if err := proto.Unmarshal(value, &pb); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal payment captured event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
-	// TODO: examine best practices around setting attributes (more info better?)
+	if pb.ReservationInfo == nil {
+		return fmt.Errorf("payment captured event missing reservation_info")
+	}
+
+	event := &eventspb.CapacityEvent{
+		Action:          eventspb.CapacityAction_CAPACITY_ACTION_CONFIRM,
+		ReservationInfo: pb.ReservationInfo,
+		ConsignmentId:   pb.ConsignmentId,
+		PaymentId:       pb.PaymentId,
+		SagaStartedAt:   pb.SagaStartedAt,
+	}
+
 	span.SetAttributes(
-		attribute.String("consignment_id", event.ConsignmentID),
-		attribute.String("reservation_id", event.ReservationInfo.Id.String()),
-		attribute.String("vessel_id", event.ReservationInfo.VesselID.String()),
+		attribute.String("consignment_id", event.ConsignmentId),
+		attribute.String("reservation_id", event.ReservationInfo.GetId()),
+		attribute.String("vessel_id", event.ReservationInfo.GetVesselId()),
 	)
 
-	event.Action = CONFIRM
 	if err := m.processCapacityEvent(ctx, event); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -209,15 +113,14 @@ func (m *Manager) handlePaymentCapturedEvent(ctx context.Context, key, value []b
 	return nil
 }
 
-// TODO: review why we needed the retry topic
 func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) error {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "handleCapacityEvent",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
 
-	var event CapacityEvent
-	if err := json.Unmarshal(value, &event); err != nil {
+	var event eventspb.CapacityEvent
+	if err := proto.Unmarshal(value, &event); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to unmarshal event")
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal release capacity event — manual intervention required")
@@ -225,12 +128,12 @@ func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) er
 	}
 
 	span.SetAttributes(
-		attribute.String("consignment_id", event.ConsignmentID),
-		attribute.String("reservation_id", event.ReservationInfo.Id.String()),
-		attribute.String("vessel_id", event.ReservationInfo.VesselID.String()),
+		attribute.String("consignment_id", event.ConsignmentId),
+		attribute.String("reservation_id", event.ReservationInfo.GetId()),
+		attribute.String("vessel_id", event.ReservationInfo.GetVesselId()),
 	)
 
-	if err := m.processCapacityEvent(ctx, event); err != nil {
+	if err := m.processCapacityEvent(ctx, &event); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
@@ -239,15 +142,15 @@ func (m *Manager) handleCapacityEvent(ctx context.Context, key, value []byte) er
 	return nil
 }
 
-func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent) error {
-	reservationID := event.ReservationInfo.Id.String()
-	vesselID := event.ReservationInfo.VesselID.String()
+func (m *Manager) processCapacityEvent(ctx context.Context, event *eventspb.CapacityEvent) error {
+	reservationID := event.ReservationInfo.GetId()
+	vesselID := event.ReservationInfo.GetVesselId()
 
 	log.Debug().
 		Str("reservation_id", reservationID).
 		Str("vessel_id", vesselID).
 		Str("action", event.Action.String()).
-		Int("retry_count", event.RetryCount).
+		Int32("retry_count", event.RetryCount).
 		Msg("processing capacity event")
 
 	if !event.CacheCleared {
@@ -256,13 +159,11 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 			log.Error().
 				Str("reservation_id", reservationID).
 				Err(deleteErr).
-				Int("retry_count", event.RetryCount).
+				Int32("retry_count", event.RetryCount).
 				Msg("failed to delete reservation data — scheduling retry")
-			if err := m.publishRetryEvent(ctx, &event); err != nil {
+			if err := m.publishRetryEvent(ctx, event); err != nil {
 				return fmt.Errorf("failed to schedule capacity retry: %w", err)
 			}
-
-			// Don't return error - we publish a new retry event
 			return nil
 		}
 		if !deleted {
@@ -274,18 +175,18 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 
 	req := &vesselpb.CapacityRequest{
 		VesselId:           vesselID,
-		Weight:             int32(event.ReservationInfo.Weight),
-		NumberOfContainers: int32(event.ReservationInfo.NumberOfContainers),
+		Weight:             event.ReservationInfo.GetWeight(),
+		NumberOfContainers: event.ReservationInfo.GetNumberOfContainers(),
 		ReservationId:      reservationID,
 	}
 	var vesselErr error
 	switch event.Action {
-	case CONFIRM:
+	case eventspb.CapacityAction_CAPACITY_ACTION_CONFIRM:
 		vesselErr = backoff.Retry(func() error {
 			_, err := m.vesselCli.ConfirmCapacity(ctx, req)
 			return err
 		}, backoffFn())
-	case RELEASE:
+	case eventspb.CapacityAction_CAPACITY_ACTION_RELEASE:
 		vesselErr = backoff.Retry(func() error {
 			_, err := m.vesselCli.ReleaseCapacity(ctx, req)
 			return err
@@ -298,22 +199,21 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 			Str("vessel_id", vesselID).
 			Str("action", event.Action.String()).
 			Err(vesselErr).
-			Int("retry_count", event.RetryCount).
+			Int32("retry_count", event.RetryCount).
 			Msg("Vessel Capacity call failed — scheduling retry")
-		if err := m.publishRetryEvent(ctx, &event); err != nil {
+		if err := m.publishRetryEvent(ctx, event); err != nil {
 			log.Error().
 				Str("reservation_id", reservationID).
-				Str("consignment_id", event.ConsignmentID).
+				Str("consignment_id", event.ConsignmentId).
 				Err(err).
-				Msg("ALERT: failed to schedule reservation confirmed event — manual intervention required")
+				Msg("ALERT: failed to publish retry event — manual intervention required")
 			return fmt.Errorf("failed to schedule release retry: %w", err)
 		}
-
-		// Don't return error - we publish a new retry event
 		return nil
 	}
 
-	log.Info().Str("reservation_id", reservationID).
+	log.Info().
+		Str("reservation_id", reservationID).
 		Str("action", event.Action.String()).
 		Str("vessel_id", vesselID).
 		Msg("Capacity event succeeded")
@@ -322,12 +222,11 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 		log.Warn().Str("reservation_id", reservationID).Err(err).Msg("failed to delete reservation id key — will expire naturally")
 	}
 
-	if event.Action == CONFIRM {
-		// TODO: add retry
-		if err := m.publishReservationConfirmed(ctx, &event); err != nil {
+	if event.Action == eventspb.CapacityAction_CAPACITY_ACTION_CONFIRM {
+		if err := m.publishReservationConfirmed(ctx, event); err != nil {
 			log.Error().
 				Str("reservation_id", reservationID).
-				Str("consignment_id", event.ConsignmentID).
+				Str("consignment_id", event.ConsignmentId).
 				Err(err).
 				Msg("ALERT: failed to schedule reservation confirmed event — manual intervention required")
 		}
@@ -337,27 +236,26 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event CapacityEvent)
 }
 
 func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []byte) error {
-	var event CapacityEvent
-	if err := json.Unmarshal(value, &event); err != nil {
+	var event eventspb.CapacityEvent
+	if err := proto.Unmarshal(value, &event); err != nil {
 		log.Error().Err(err).Str("key", string(key)).Msg("ALERT: failed to unmarshal DLQ capacity event — manual intervention required")
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
-	reservationID := event.ReservationInfo.Id.String()
-	vesselID := event.ReservationInfo.VesselID.String()
+	reservationID := event.ReservationInfo.GetId()
+	vesselID := event.ReservationInfo.GetVesselId()
 
 	switch event.Action {
-	case RELEASE:
+	case eventspb.CapacityAction_CAPACITY_ACTION_RELEASE:
 		log.Error().
 			Str("reservation_id", reservationID).
 			Str("vessel_id", vesselID).
-			Int("retry_count", event.RetryCount).
+			Int32("retry_count", event.RetryCount).
 			Msg("ALERT: release capacity exhausted retries — vessel capacity may be understated, manual reconciliation required")
 
-	case CONFIRM:
-		// ConfirmCapacity exhausted retries — release capacity and notify CS to refund and cancel.
-		releaseEvent := CapacityEvent{
-			Action:          RELEASE,
+	case eventspb.CapacityAction_CAPACITY_ACTION_CONFIRM:
+		releaseEvent := &eventspb.CapacityEvent{
+			Action:          eventspb.CapacityAction_CAPACITY_ACTION_RELEASE,
 			ReservationInfo: event.ReservationInfo,
 			CacheCleared:    event.CacheCleared,
 		}
@@ -368,76 +266,110 @@ func (m *Manager) handleFailedCapacityEvent(ctx context.Context, key, value []by
 		if err := m.publishConfirmationFailed(ctx, &event); err != nil {
 			log.Error().
 				Str("reservation_id", reservationID).
-				Str("consignment_id", event.ConsignmentID).
-				Str("payment_id", event.PaymentID).
+				Str("consignment_id", event.ConsignmentId).
+				Str("payment_id", event.PaymentId).
 				Err(err).
 				Msg("ALERT: failed to notify consignment of confirmation failure — manual refund and cancellation required")
-
 			return fmt.Errorf("failed to publish capacity confirmation failure event: %w", err)
 		}
 
 	default:
 		log.Error().
 			Str("key", string(key)).
-			Int("action", int(event.Action)).
+			Int32("action", int32(event.Action)).
 			Msg("ALERT: unknown action")
 	}
 
 	return nil
 }
 
-func (m *Manager) publishConfirmationFailed(ctx context.Context, event *CapacityEvent) error {
-	payload := FailedConfirmationEvent{
+// --- Publish functions ---
+
+func (m *Manager) publishReservationExpired(ctx context.Context, r *storage.ReservationInfo) error {
+	payload, err := proto.Marshal(&eventspb.ReservationExpiredEvent{
+		ReservationId: r.Id.String(),
+		VesselId:      r.VesselID.String(),
+		ConsignmentId: r.ConsignmentID.String(),
+		Weight:        int32(r.Weight),
+		Containers:    int32(r.NumberOfContainers),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal reservation expired event: %w", err)
+	}
+	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
+		Topic:   ReservationExpiredTopic,
+		Key:     r.Id.String(),
+		Payload: payload,
+	})
+}
+
+func (m *Manager) publishReservationConfirmed(ctx context.Context, event *eventspb.CapacityEvent) error {
+	payload, err := proto.Marshal(&eventspb.ReservationConfirmedEvent{
+		ReservationId: event.ReservationInfo.GetId(),
+		ConsignmentId: event.ConsignmentId,
+		SagaStartedAt: event.SagaStartedAt,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal reservation confirmed event: %w", err)
+	}
+	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
+		Topic:   ReservationConfirmedTopic,
+		Key:     event.ConsignmentId,
+		Payload: payload,
+	})
+}
+
+func (m *Manager) publishConfirmationFailed(ctx context.Context, event *eventspb.CapacityEvent) error {
+	payload, err := proto.Marshal(&eventspb.ConsignmentConfirmationFailedEvent{
 		PaymentCaptured: true,
 		CacheCleared:    true,
-		PaymentID:       event.PaymentID,
-		ConsignmentID:   event.ConsignmentID,
-		ReservationID:   event.ReservationInfo.Id.String(),
-		VesselID:        event.ReservationInfo.VesselID.String(),
-		Weight:          event.ReservationInfo.Weight,
-		Containers:      event.ReservationInfo.NumberOfContainers,
+		PaymentId:       event.PaymentId,
+		ConsignmentId:   event.ConsignmentId,
+		ReservationId:   event.ReservationInfo.GetId(),
+		VesselId:        event.ReservationInfo.GetVesselId(),
+		Weight:          event.ReservationInfo.GetWeight(),
+		Containers:      event.ReservationInfo.GetNumberOfContainers(),
 		SagaStartedAt:   event.SagaStartedAt,
-	}
-	payloadJSON, err := json.Marshal(payload)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal failed confirmation event: %w", err)
 	}
 	return m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
-		Topic:   ConsignmentConfirmationFailedTopic, // TODO: maybe this should be reservation.confirmation.failed (that is the event that happened)
-		Key:     event.ConsignmentID,
-		Payload: payloadJSON,
+		Topic:   ConsignmentConfirmationFailedTopic,
+		Key:     event.ConsignmentId,
+		Payload: payload,
 	})
 }
 
-func (m *Manager) publishRetryEvent(ctx context.Context, event *CapacityEvent) error {
+func (m *Manager) publishRetryEvent(ctx context.Context, event *eventspb.CapacityEvent) error {
 	event.RetryCount++
 
-	eventJSON, err := json.Marshal(event)
+	payload, err := proto.Marshal(event)
 	if err != nil {
 		log.Error().
-			Str("reservation_id", event.ReservationInfo.Id.String()).
+			Str("reservation_id", event.ReservationInfo.GetId()).
 			Err(err).
 			Msg("ALERT: failed to marshal capacity event — manual intervention required")
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
 	topic := CapacityFailedTopic
-	if event.RetryCount < maxRetries {
+	if event.RetryCount < int32(MaxRetries) {
 		switch event.Action {
-		case CONFIRM:
+		case eventspb.CapacityAction_CAPACITY_ACTION_CONFIRM:
 			topic = ConfirmCapacityTopic
-		case RELEASE:
+		case eventspb.CapacityAction_CAPACITY_ACTION_RELEASE:
 			topic = ReleaseCapacityTopic
 		}
 	}
 
 	if err := m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
 		Topic:   topic,
-		Key:     event.ReservationInfo.Id.String(),
-		Payload: eventJSON,
+		Key:     event.ReservationInfo.GetId(),
+		Payload: payload,
 	}); err != nil {
 		log.Warn().
-			Str("reservation_id", event.ReservationInfo.Id.String()).
+			Str("reservation_id", event.ReservationInfo.GetId()).
 			Err(err).
 			Msg("failed to create outbox event")
 		return fmt.Errorf("failed to create outbox event: %w", err)
