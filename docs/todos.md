@@ -16,9 +16,6 @@
 - [ ] RS gRPC handler unit tests: `ReserveCapacity` compensation path (cache store fails → release called)
 - [ ] RS gRPC handler unit tests: `ConfirmCapacity` retry path (vessel call fails with backoff)
 
-## Event contracts
-
-- [ ] Define explicit proto schemas for all SAGA integration events (`payment.authorised`, `payment.captured`, `reservation.confirmed`, `reservation.expired`, `consignment.confirmation.failed`) — currently events are ad-hoc Go structs serialised to JSON with no shared contract between producer and consumer. Protobuf schemas would enforce a contract, catch breaking changes at compile time, and remove the implicit coupling between services on JSON field names
 
 ## Frontend
 

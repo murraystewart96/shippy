@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: shippy
+    folder: Shippy
+    type: file
+    options:
+      path: /etc/grafana/dashboards
