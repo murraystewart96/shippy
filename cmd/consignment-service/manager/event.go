@@ -273,9 +273,10 @@ func (m *Manager) publishPaymentAuthorised(ctx context.Context, event *eventspb.
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
+	key := fmt.Sprintf("%s-%d", event.ConsignmentId, event.RetryCount)
 	if err := m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
 		Topic:   ConsignmentPaymentAuthorisedTopic,
-		Key:     event.ConsignmentId,
+		Key:     key,
 		Payload: payload,
 	}); err != nil {
 		log.Warn().

@@ -363,9 +363,10 @@ func (m *Manager) publishRetryEvent(ctx context.Context, event *eventspb.Capacit
 		}
 	}
 
+	key := fmt.Sprintf("%s-%d", event.ReservationInfo.GetId(), event.RetryCount)
 	if err := m.outbox.CreateEvent(ctx, &storage.OutboxEvent{
 		Topic:   topic,
-		Key:     event.ReservationInfo.GetId(),
+		Key:     key,
 		Payload: payload,
 	}); err != nil {
 		log.Warn().

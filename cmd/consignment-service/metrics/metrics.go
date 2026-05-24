@@ -20,7 +20,7 @@ func New() Metrics {
 		sagaDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "shippy_saga_duration_seconds",
 			Help:    "Duration from ConfirmConsignment to terminal state",
-			Buckets: prometheus.DefBuckets,
+			Buckets: []float64{1, 5, 10, 15, 20, 30, 45, 60, 90, 120},
 		}, []string{"status"}),
 		sagaTotal: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "shippy_saga_total",
