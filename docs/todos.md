@@ -9,7 +9,7 @@
 ## Known gaps to address
 
 - [ ] Retry backoff too aggressive for external gRPC calls — 3 retries × 100ms exhausts in ~800ms, below typical cloud transient failure recovery time. Increase to 5 retries with 500ms initial interval and add `backoff.WithJitter` to spread load
-- [ ] RS `publishRetryEvent` failure — offset is now not committed (manual commit added) so Kafka redelivers, but redeliver hits the cache check and stalls if cache was already cleared. Alert needed: instrument `shippy_saga_errors_total{stage="capacity_retry_schedule", error_class="outbox_write_failed"}`
+
 
 ## Tests
 
@@ -23,6 +23,3 @@
 - [ ] WebSocket connection from gateway to frontend — push terminal saga state (`confirmed` / `cancelled`) to the client without polling
 - [ ] CS publishes `consignment.status.updated` Kafka event at terminal saga steps; gateway consumes and fans out to the relevant WebSocket connection
 
-## Documentation
-
-- [ ] README: story-led intro → architecture overview → saga deep dive (happy path + compensation) → observability → running locally → known limitations & future improvements

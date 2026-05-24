@@ -28,11 +28,11 @@ See [known-limitations.md](known-limitations.md) for details.
 
 ---
 
-## Kafka producer delivery confirmation
+## Poison pill handling
 
-The outbox publisher currently calls `MarkPublished` before Kafka confirms delivery. Switching to a synchronous delivery report (passing a delivery channel to confluent-kafka-go's `Produce` and waiting for acknowledgement) would eliminate the window where an event is marked published but never actually delivered.
+The Kafka consumer currently does not commit the offset when a handler returns an error, causing the message to be redelivered immediately and indefinitely. A malformed message that fails to unmarshal will loop forever, blocking all subsequent messages in that partition.
 
-See [known-limitations.md](known-limitations.md) for details.
+The fix is to distinguish permanent failures (e.g. unmarshal errors — retrying will never help) from transient failures (e.g. DB unavailable — retrying may succeed). Permanent failures should commit the offset and log an alert; transient failures should not commit and allow redelivery. A typed `ErrPermanent` sentinel returned from handlers would let the consumer make this distinction without coupling it to specific error types.
 
 ---
 

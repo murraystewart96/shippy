@@ -16,9 +16,17 @@ Saga duration is bounded below by the outbox poll interval. The saga has two out
 
 ---
 
+## 3. Redis delete and outbox write are not atomic
+
+In `processCapacityEvent`, the Redis reservation data is deleted before the outbox event is written to Postgres. These are separate storage systems and cannot participate in the same transaction. If the process crashes after the Redis delete but before the vessel gRPC call and outbox write, the vessel capacity will not be confirmed and `ReservationConfirmed` is never published and the saga stalls in `confirmation_pending` permanently — the retry will hit the already-deleted cache entry and return early as a duplicate.
+
+**Mitigation:** The reconciliation job described in [reconciliation-job.md](reconciliation-job.md) would detect and recover these stalled sagas. The correct long-term fix is to move reservation data from Redis into Postgres, at which point the delete and outbox write become a single atomic transaction. 
+
+---
+
 ## 4. Captured payment with no refund path under extreme outage
 
-Two races exist when outage duration exceeds the reservation TTL (~300s):
+Two races exist when outage duration exceeds the reservation TTL:
 
 **Broker outage:** CS captures payment and writes `payment.captured` to its outbox, but the broker is down. The reservation expires. When the broker recovers both events publish — if `payment.captured` arrives first, capacity is confirmed; `reservation.expired` then arrives and is silently skipped as a duplicate. Payment is captured with no refund.
 
@@ -27,17 +35,3 @@ Two races exist when outage duration exceeds the reservation TTL (~300s):
 **Mitigation:** Both require outage durations longer than the reservation TTL, making them low-probability in practice. The pragmatic future fix is a reconciliation job that queries the payment service for consignments in ambiguous states and issues refunds where capture is confirmed. Documented in [reconciliation-job.md](reconciliation-job.md).
 
 ---
-
-## 5. Single vessel is a write contention hotspot
-
-All capacity operations (reserve, confirm, release) run MongoDB multi-document transactions that modify the same vessel document. Under concurrent load, transactions contend on this hot document and produce `WriteConflict` errors. Retry backoff at the caller mitigates this but does not eliminate it.
-
-**Mitigation:** Sharding the vessel document (N shards each with 1/N capacity) reduces conflict probability proportionally. Not relevant at realistic shipping concurrency levels.
-
----
-
-## 6. No reservation expiry → consignment cancellation path
-
-When a reservation expires, the reservation service releases vessel capacity and publishes `reservation.expired`. The consignment service consumes this and cancels the consignment — but only if the consignment status is `pending`. If the consignment is in `confirmation_pending` when the reservation expires (payment captured, vessel confirm in-flight), there is no automated cancellation path.
-
-**Mitigation:** The reconciliation job is intended to handle this case by querying the vessel service for the true state of the reservation. Documented in [reconciliation-job.md](reconciliation-job.md).
