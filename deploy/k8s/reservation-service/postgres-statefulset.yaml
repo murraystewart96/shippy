@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: reservation-db
+spec:
+  serviceName: reservation-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reservation-db
+  template:
+    metadata:
+      labels:
+        app: reservation-db
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: reservation-db
+        image: postgres:alpine
+        ports:
+        - containerPort: 5432
+          name: db
+        volumeMounts:
+        - name: init-sql
+          mountPath: /docker-entrypoint-initdb.d
+        - name: reservation-db-data
+          mountPath: /var/lib/postgresql/data
+        env:
+        - name: POSTGRES_DB
+          value: reservation
+        - name: POSTGRES_USER
+          value: reservation
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: reservation-db-creds
+              key: password
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "reservation", "-d", "reservation"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 6
+      volumes:
+      - name: init-sql
+        configMap:
+          name: reservation-db-init-sql
+  volumeClaimTemplates:
+  - metadata:
+      name: reservation-db-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi

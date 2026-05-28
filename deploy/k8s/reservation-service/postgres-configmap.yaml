@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reservation-db-init-sql
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+    CREATE TABLE outbox (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        topic VARCHAR NOT NULL,
+        key VARCHAR NOT NULL,
+        payload BYTEA NOT NULL,
+        trace_context JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        published_at TIMESTAMP,
+        processing_until TIMESTAMP
+    );
+
+    CREATE UNIQUE INDEX outbox_pending_unique ON outbox (key, topic) WHERE published_at IS NULL;

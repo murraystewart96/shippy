@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reservation-redis
+  labels:
+    app: reservation-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reservation-redis
+  template:
+    metadata:
+      labels:
+        app: reservation-redis
+    spec:
+      containers:
+      - name: reservation-redis
+        image: redis:alpine
+        command: ["redis-server", "--appendonly", "yes"]
+        ports:
+        - containerPort: 6379

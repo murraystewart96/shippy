@@ -18,12 +18,24 @@ spec:
       containers:
       - name: vessel-service-database
         image: mongo
+        command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--logpath=/dev/null"]
         ports:
         - containerPort: 27017
           name: mongodb
         volumeMounts:
         - name: vessel-db-data
           mountPath: /data/db
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'vessel-service-database-0.vessel-service-database:27017'}]}).ok }"
+            - --quiet
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
   volumeClaimTemplates:
   - metadata:
       name: vessel-db-data

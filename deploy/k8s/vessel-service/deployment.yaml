@@ -27,3 +27,5 @@ spec:
             value: vessel-service-database
           - name: DB_PORT
             value: "27017"
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "tempo:4317"

@@ -22,7 +22,7 @@ func TestHandlePaymentCapturedEvent_HappyPath(t *testing.T) {
 	s.cleanState(t)
 	s.vesselSvc.reset()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	// Seed redis with reservation
@@ -51,6 +51,33 @@ func TestHandlePaymentCapturedEvent_HappyPath(t *testing.T) {
 
 	mgr := s.newManager(t, []string{manager.PaymentCapturedTopic})
 	mgr.Start(ctx, &wg)
+
+	reservationConfirmedEvent := make(chan struct{})
+	consumer, err := kafka.NewConsumer(&kafka.ConsumerConfig{
+		BootstrapServers: s.kafkaAddr,
+		GroupID:          "test-capacity-consumer",
+		OffsetReset:      "earliest",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = consumer.Close() })
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = consumer.StartConsuming(ctx, kafka.EventHandlers{
+			manager.ReservationConfirmedTopic: func(ctx context.Context, key, value []byte) error {
+				close(reservationConfirmedEvent)
+				return nil
+			},
+		})
+	}()
+
+	// Payment Captured event was sent and received
+	select {
+	case <-reservationConfirmedEvent:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for payment captured event")
+	}
 
 	assert.Eventually(t, func() bool {
 		s.vesselSvc.mu.Lock()

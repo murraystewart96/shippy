@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reservation-service-deployment
+  labels:
+    app: reservation-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reservation-service
+  template:
+    metadata:
+      labels:
+        app: reservation-service
+    spec:
+      containers:
+      - name: reservation-service
+        image: shippy-reservation
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 50051
+          name: grpc
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: SHIPPY_ADDRESS
+          value: ":50051"
+        - name: SHIPPY_VESSEL_SERVICE_ADDRESS
+          value: "vessel-service:50051"
+        - name: SHIPPY_REDIS_ADDR
+          value: "reservation-redis:6379"
+        - name: SHIPPY_REDIS_RESERVATION_TTL
+          value: "600"
+        - name: SHIPPY_REDIS_RESERVATION_DATA_TTL
+          value: "1800"
+        - name: SHIPPY_DATABASE_HOST
+          value: "reservation-db"
+        - name: SHIPPY_DATABASE_PORT
+          value: "5432"
+        - name: SHIPPY_DATABASE_NAME
+          value: "reservation"
+        - name: SHIPPY_DATABASE_USER
+          value: "reservation"
+        - name: SHIPPY_DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: reservation-db-creds
+              key: password
+        - name: SHIPPY_KAFKA_PRODUCER_BOOTSTRAP_SERVERS
+          value: "kafka:9092"
+        - name: SHIPPY_KAFKA_PRODUCER_ACKS
+          value: "all"
+        - name: SHIPPY_KAFKA_CONSUMER_BOOTSTRAP_SERVERS
+          value: "kafka:9092"
+        - name: SHIPPY_KAFKA_CONSUMER_GROUP_ID
+          value: "reservation-service"
+        - name: SHIPPY_KAFKA_CONSUMER_OFFSET_RESET
+          value: "earliest"
+        - name: SHIPPY_MANAGER_CLEANUP_INTERVAL
+          value: "60"
+        - name: SHIPPY_MANAGER_OUTBOX_INTERVAL
+          value: "15"
+        - name: METRICS_ADDRESS
+          value: ":9090"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "tempo:4317"
+        readinessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 30
+          periodSeconds: 15

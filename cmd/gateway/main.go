@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +81,7 @@ func main() {
 	r.Use(otelgin.Middleware("gateway"))
 
 	// Assign handlers
+	r.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.POST("/auth", h.Auth)
 	r.POST("/v1/users", h.CreateUser)
 

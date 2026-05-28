@@ -15,7 +15,7 @@ WORKDIR /app/cmd/consignment-service
 
 RUN go mod download
 
-RUN CGO_ENABLED=1 GOOS=linux go build -a -o consignment-service .
+RUN CGO_ENABLED=1 GOOS=linux go build -o consignment-service .
 
 FROM debian:bookworm-slim
 

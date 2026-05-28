@@ -63,7 +63,7 @@ done
 
 echo ""
 echo "--- done ---"
-echo "search for these consignment IDs in Jaeger (tag: consignment_id=<id>):"
+echo "search for these consignment IDs in Grafana Tempo (tag: consignment_id=<id>):"
 for ID in "${CONSIGNMENT_IDS[@]}"; do
   echo "  $ID"
 done

@@ -32,3 +32,17 @@ spec:
               secretKeyRef:
                 name: jwt-secret
                 key: secret
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "tempo:4317"
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 15

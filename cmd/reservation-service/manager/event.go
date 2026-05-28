@@ -147,6 +147,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event *eventspb.Capa
 	vesselID := event.ReservationInfo.GetVesselId()
 
 	log.Debug().
+		Str("consignment_id", event.ConsignmentId).
 		Str("reservation_id", reservationID).
 		Str("vessel_id", vesselID).
 		Str("action", event.Action.String()).
@@ -157,6 +158,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event *eventspb.Capa
 		deleted, deleteErr := m.cache.DeleteData(ctx, reservationID)
 		if deleteErr != nil {
 			log.Error().
+				Str("consignment_id", event.ConsignmentId).
 				Str("reservation_id", reservationID).
 				Err(deleteErr).
 				Int32("retry_count", event.RetryCount).
@@ -167,7 +169,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event *eventspb.Capa
 			return nil
 		}
 		if !deleted {
-			log.Info().Str("reservation_id", reservationID).Msg("reservation data already deleted — skipping (duplicate event)")
+			log.Info().Str("consignment_id", event.ConsignmentId).Str("reservation_id", reservationID).Msg("reservation data already deleted — skipping (duplicate event)")
 			return nil
 		}
 		event.CacheCleared = true
@@ -195,6 +197,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event *eventspb.Capa
 
 	if vesselErr != nil {
 		log.Error().
+			Str("consignment_id", event.ConsignmentId).
 			Str("reservation_id", reservationID).
 			Str("vessel_id", vesselID).
 			Str("action", event.Action.String()).
@@ -213,6 +216,7 @@ func (m *Manager) processCapacityEvent(ctx context.Context, event *eventspb.Capa
 	}
 
 	log.Info().
+		Str("consignment_id", event.ConsignmentId).
 		Str("reservation_id", reservationID).
 		Str("action", event.Action.String()).
 		Str("vessel_id", vesselID).

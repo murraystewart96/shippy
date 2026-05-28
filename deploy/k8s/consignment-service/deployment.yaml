@@ -22,12 +22,30 @@ spec:
           - containerPort: 50051
         env:
           - name: GRPC_ADDRESS
-            value: :50051
+            value: ":50051"
           - name: DB_HOST
             value: consignment-service-database
           - name: DB_PORT
             value: "27017"
-          - name: USER_SERVICE_ADDRESS
-            value: "user-service:50051"
-          - name: VESSEL_SERVICE_ADDRESS
-            value: "vessel-service:50051"
+          - name: RESERVATION_SERVICE_ADDRESS
+            value: "reservation-service:50051"
+          - name: PAYMENT_SERVICE_ADDRESS
+            value: "payment-service:50051"
+          - name: KAFKA_ADDRESS
+            value: "kafka:9092"
+          - name: OUTBOX_INTERVAL
+            value: "15"
+          - name: METRICS_ADDRESS
+            value: ":9090"
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "tempo:4317"
+        readinessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 30
+          periodSeconds: 15

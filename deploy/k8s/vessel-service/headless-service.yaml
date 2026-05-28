@@ -9,6 +9,7 @@ spec:
     app: vessel-service-database
   type: ClusterIP
   clusterIP: None
+  publishNotReadyAddresses: true
   ports:
     - name: mongodb
       port: 27017

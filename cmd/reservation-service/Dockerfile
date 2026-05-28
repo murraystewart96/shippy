@@ -15,7 +15,7 @@ WORKDIR /app/cmd/reservation-service
 
 RUN go mod download
 
-RUN CGO_ENABLED=1 GOOS=linux go build -a -o reservation-service .
+RUN CGO_ENABLED=1 GOOS=linux go build -o reservation-service .
 
 FROM debian:bookworm-slim
 

@@ -18,12 +18,24 @@ spec:
       containers:
       - name: consignment-service-database
         image: mongo
+        command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--logpath=/dev/null"]
         ports:
         - containerPort: 27017
           name: mongodb
         volumeMounts:
         - name: consignment-db-data
           mountPath: /data/db
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'consignment-service-database-0.consignment-service-database:27017'}]}).ok }"
+            - --quiet
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
   volumeClaimTemplates:
   - metadata:
       name: consignment-db-data

@@ -9,21 +9,22 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 )
 
 func NewGRPCServer(handler *GRPCHandler, grpcOpts ...grpc.ServerOption) *grpc.Server {
-	//hsrv := health.NewServer()
-	//hsrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
-	//healthpb.RegisterHealthServer(gsrv, hsrv)
-
 	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 	)
 
 	pb.RegisterReservationServiceServer(srv, handler)
 
-	// For testing and debugging
+	hsrv := health.NewServer()
+	hsrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(srv, hsrv)
+
 	reflection.Register(srv)
 
 	return srv

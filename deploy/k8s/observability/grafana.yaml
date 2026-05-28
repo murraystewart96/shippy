@@ -1,0 +1,195 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: grafana-tempo
+        url: http://tempo:3200
+        access: proxy
+        isDefault: true
+      - name: Prometheus
+        type: prometheus
+        uid: PBFA97CFB590B2093
+        url: http://prometheus:9090
+        access: proxy
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: shippy
+        folder: Shippy
+        type: file
+        options:
+          path: /etc/grafana/dashboards
+  shippy.json: |
+    {
+      "title": "Shippy SAGA",
+      "uid": "eba27220-820d-4afd-9b68-f8cee842b022",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "tags": [],
+      "time": { "from": "now-15m", "to": "now" },
+      "timezone": "browser",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Saga Duration",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 14 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by(le, status) (rate(shippy_saga_duration_seconds_bucket[5m])))",
+              "legendFormat": "p95 {{status}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.99, sum by(le, status) (rate(shippy_saga_duration_seconds_bucket[5m])))",
+              "legendFormat": "p99 {{status}}",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "expr": "histogram_quantile(0.5, sum by(le, status) (rate(shippy_saga_duration_seconds_bucket[5m])))",
+              "legendFormat": "p50 {{status}}",
+              "range": true
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 0, "showPoints": "auto" }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Saga Throughput",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 14, "w": 24, "h": 14 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(shippy_saga_total[5m]))",
+              "legendFormat": "sagas/s",
+              "range": true
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 0, "showPoints": "auto" }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Saga Cancellation Rate",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 28, "w": 24, "h": 14 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "rate(shippy_saga_total{status=\"confirmed\"}[5m])",
+              "legendFormat": "confirmed/s",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "rate(shippy_saga_total{status=\"cancelled\"}[5m])",
+              "legendFormat": "cancelled/s",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "expr": "rate(shippy_saga_total{status=\"cancelled\"}[5m]) / rate(shippy_saga_total[5m]) * 100",
+              "legendFormat": "cancellation rate %",
+              "range": true
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 0, "showPoints": "auto" }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "cancellation rate %" },
+                "properties": [
+                  { "id": "custom.axisPlacement", "value": "right" },
+                  { "id": "unit", "value": "percent" }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+          subPath: datasources.yaml
+        - name: config
+          mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+          subPath: dashboards.yaml
+        - name: config
+          mountPath: /etc/grafana/dashboards/shippy.json
+          subPath: shippy.json
+      volumes:
+      - name: config
+        configMap:
+          name: grafana-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
