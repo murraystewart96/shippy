@@ -2,7 +2,22 @@
 
 ---
 
+## Services
+
+| Service | Language | Role |
+|---------|----------|------|
+| `gateway` | Go / Gin | HTTP API -> gRPC, JWT auth |
+| `consignment-service` | Go / gRPC | Consignment lifecycle |
+| `reservation-service` | Go / gRPC | Vessel capacity reservations |
+| `vessel-service` | Go / gRPC | Vessel registry |
+| `payment-service` | Go / gRPC | Mock payment processor (authorise → capture) |
+| `user-service` | Go / gRPC | User registration and JWT issuance |
+
+---
+
 ## Running locally
+
+### Docker Compose
 
 **Prerequisites:** Docker and Docker Compose.
 
@@ -10,12 +25,43 @@
 docker-compose up --build
 ```
 
-This starts all services, infrastructure (Kafka, MongoDB, Postgres, Redis), and the observability stack (Prometheus, Tempo, Grafana).
+### Kubernetes (kind)
+
+**Prerequisites:** Docker, [kind](https://kind.sigs.k8s.io/), kubectl.
+
+```bash
+make cluster-create  # create a local kind cluster
+make build           # build all Docker images
+make load            # load images into the cluster
+make deploy          # deploy services, Kafka, and observability stack
+```
+
+In one terminal, keep the gateway exposed:
+
+```bash
+make forward         # localhost:8080 → gateway
+```
+
+Then verify end-to-end:
+
+```bash
+make smoke           # creates and confirms 5 consignments
+```
+
+To access Grafana:
+
+```bash
+make forward-grafana # localhost:3000 → Grafana (admin/admin)
+```
+
+---
+
+### Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
 | `localhost:8080` | HTTP gateway |
-| `localhost:3000` | Grafana dashboards |
+| `localhost:3000` | Grafana (dashboards + Tempo trace search) |
 
 **Load test** (requires [k6](https://k6.io)):
 
@@ -87,4 +133,13 @@ The root cause was a **hot document problem**. With only a handful of vessels in
 
 Adding **exponential backoff** to the `ConfirmCapacity` call absorbed the transient contention and the cancellation rate dropped to zero under the same load.
 
+---
+
+## Known limitations
+
+See [docs/known-limitations.md](docs/known-limitations.md).
+
+## Future improvements
+
+See [docs/future-improvements.md](docs/future-improvements.md).
 
