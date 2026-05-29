@@ -25,19 +25,6 @@
 docker-compose up --build
 ```
 
-### Endpoints
-
-| Endpoint | Purpose |
-|----------|---------|
-| `localhost:8080` | HTTP gateway |
-| `localhost:3000` | Grafana (dashboards + Tempo trace search) |
-
-**Load test** (requires [k6](https://k6.io)):
-
-```bash
-k6 run scripts/k6_load_test.js
-```
-
 ### Kubernetes (kind)
 
 **Prerequisites:** Docker, [kind](https://kind.sigs.k8s.io/), kubectl.
@@ -69,6 +56,19 @@ make forward-grafana # localhost:3000 → Grafana (admin/admin)
 
 ---
 
+### Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `localhost:8080` | HTTP gateway |
+| `localhost:3000` | Grafana (dashboards + Tempo trace search) |
+
+**Load test** (requires [k6](https://k6.io)):
+
+```bash
+k6 run scripts/k6_load_test.js
+```
+
 ## Reservation Service
 
 **The problem.** When a consignment is created, vessel capacity must be held against it before payment is confirmed. If payment fails or times out, that capacity must be released. This is a **two-phase resource allocation** problem: reserve optimistically, then confirm or release based on the payment outcome. Reservations have a TTL — if the consignment isn't confirmed within the window, capacity is returned automatically.
@@ -77,14 +77,12 @@ make forward-grafana # localhost:3000 → Grafana (admin/admin)
 - A short-lived **ID entry** that defines the reservation lifetime
 - A longer-lived **data entry** holding the vessel ID and capacity figures needed to execute a release
 
-NOTE: redis configured with append only and syncs everysec to persist reservations.
-
 | Key | TTL | Purpose |
 |-----|-----|---------|
 | `reservation:{id}` | 10 min | TTL marker — absence signals expiry |
 | `reservation_data:{id}` | 30 min | Holds vessel and consignment ID, weight, containers |
 
-When the ID entry expires, the reservation is void. Redis is configured with **AOF persistence** syncing every second.
+When the ID entry expires, the reservation is void. Redis is configured with **AOF persistence** syncing every second to avoid data loss.
 
 **Why events.** Confirm and release operations are handled via **Kafka events** rather than synchronous RPC. The core reason is durability: if the cleanup job repeatedly fails to release an expired reservation, the data eventually expires from the cache and the release opportunity is lost permanently. Modelling the intent to release as a Kafka event means it survives beyond the cache TTL. The consignment service also needs to trigger confirms asynchronously, so both paths follow the same event-driven model.
 
@@ -109,6 +107,31 @@ In practice this shifted the dependency from Kafka to the database. But implemen
 After a user has created a consignment they need to confirm it. Confirmation is made up of payment authorisation and capture, reservation and vessel capacity confirmation, and consignment status update. To coordinate these actions across services I used a **choreography-based SAGA**. Choreography was chosen over orchestration because the flow is straightforward, the number of services is small, and there is no need for a central coordinator adding latency and a single point of failure.
 
 For a detailed view of the confirmation SAGA including sequence diagrams and compensating transactions see [saga-overview.md](docs/saga-overview.md).
+
+---
+
+## Testing
+
+**Prerequisite:** Docker (used by testcontainers to spin up real infrastructure).
+
+The integration tests give us the most confidence in the SAGA — they run the full happy path and compensation flows against real Kafka, MongoDB, Postgres, and Redis instances, ensuring that all local transactions are made and events are published.
+
+```bash
+# Consignment service — full SAGA flow, reservation confirmed, and compensation
+cd cmd/consignment-service && go test ./integration/... -v
+
+# Reservation service — capacity confirm and refund/cancel flows
+cd cmd/reservation-service && go test ./integration/... -v
+```
+
+Unit tests cover the event handler logic in isolation:
+
+```bash
+cd cmd/consignment-service && go test ./manager/...
+cd cmd/reservation-service && go test ./manager/...
+```
+
+---
 
 ## Observability
 
