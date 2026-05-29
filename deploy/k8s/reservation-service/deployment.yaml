@@ -60,7 +60,7 @@ spec:
         - name: SHIPPY_MANAGER_CLEANUP_INTERVAL
           value: "60"
         - name: SHIPPY_MANAGER_OUTBOX_INTERVAL
-          value: "15"
+          value: "5"
         - name: METRICS_ADDRESS
           value: ":9090"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT

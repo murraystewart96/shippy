@@ -34,7 +34,7 @@ spec:
           - name: KAFKA_ADDRESS
             value: "kafka:9092"
           - name: OUTBOX_INTERVAL
-            value: "15"
+            value: "5"
           - name: METRICS_ADDRESS
             value: ":9090"
           - name: OTEL_EXPORTER_OTLP_ENDPOINT
