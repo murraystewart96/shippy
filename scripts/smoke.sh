@@ -55,10 +55,35 @@ for ID in "${CONSIGNMENT_IDS[@]}"; do
   RESPONSE=$(curl -sf -X POST "$BASE_URL/v1/consignments/confirm/$ID" \
     -H "x-token: $TOKEN")
 
-  echo "confirmed $ID — $(echo "$RESPONSE" | jq -r '.confirmed')"
+  echo "confirming $ID"
 
   # small delay so the saga flows through before the next confirm
   # sleep 1
+done
+
+echo ""
+echo "--- waiting for sagas to complete (polling every 5s, timeout 30s) ---"
+DEADLINE=$(( $(date +%s) + 30 ))
+while true; do
+  ALL_CONSIGNMENTS=$(curl -sf "$BASE_URL/v1/consignments" -H "x-token: $TOKEN" | jq '. // []')
+  CONFIRMED=0
+  for ID in "${CONSIGNMENT_IDS[@]}"; do
+    STATUS=$(echo "$ALL_CONSIGNMENTS" | jq -r --arg id "$ID" '.[] | select(.id == $id) | .status')
+    [[ "$STATUS" == "confirmed" ]] && (( CONFIRMED++ )) || true
+  done
+
+  echo "  $CONFIRMED / ${#CONSIGNMENT_IDS[@]} confirmed"
+  [[ "$CONFIRMED" -eq "${#CONSIGNMENT_IDS[@]}" ]] && break
+
+  if [[ $(date +%s) -ge $DEADLINE ]]; then
+    echo "  timed out — printing final statuses:"
+    for ID in "${CONSIGNMENT_IDS[@]}"; do
+      STATUS=$(echo "$ALL_CONSIGNMENTS" | jq -r --arg id "$ID" '.[] | select(.id == $id) | .status')
+      echo "  $ID — ${STATUS:-unknown}"
+    done
+    break
+  fi
+  sleep 5
 done
 
 echo ""

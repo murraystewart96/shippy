@@ -14,7 +14,7 @@ build:
 	docker build -t shippy-vessel-service      -f cmd/vessel-service/Dockerfile .
 	docker build -t shippy-user-service        -f cmd/user-service/Dockerfile .
 	docker build -t shippy-reservation         -f cmd/reservation-service/Dockerfile .
-    docker build -t shippy-payment             -f cmd/payment-service/Dockerfile .
+	docker build -t shippy-payment             -f cmd/payment-service/Dockerfile .
 
 load:
 	kind load docker-image --name $(CLUSTER) gateway

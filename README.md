@@ -25,6 +25,19 @@
 docker-compose up --build
 ```
 
+### Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `localhost:8080` | HTTP gateway |
+| `localhost:3000` | Grafana (dashboards + Tempo trace search) |
+
+**Load test** (requires [k6](https://k6.io)):
+
+```bash
+k6 run scripts/k6_load_test.js
+```
+
 ### Kubernetes (kind)
 
 **Prerequisites:** Docker, [kind](https://kind.sigs.k8s.io/), kubectl.
@@ -52,21 +65,6 @@ To access Grafana:
 
 ```bash
 make forward-grafana # localhost:3000 → Grafana (admin/admin)
-```
-
----
-
-### Endpoints
-
-| Endpoint | Purpose |
-|----------|---------|
-| `localhost:8080` | HTTP gateway |
-| `localhost:3000` | Grafana (dashboards + Tempo trace search) |
-
-**Load test** (requires [k6](https://k6.io)):
-
-```bash
-k6 run scripts/k6_load_test.js
 ```
 
 ---
