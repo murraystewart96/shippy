@@ -111,13 +111,6 @@ func (m *Manager) Start(ctx context.Context, wg *sync.WaitGroup) <-chan error {
 	return errCh
 }
 
-// The managers responsibilites
-// 1.) cleanup job -> pushes to kafka
-// 2.) kafka consumer handler for restoring capacity
-
-// when creating consignment the vessel service confirms with the reservation service
-// also i think the consignment service publishes to reservation restore if it gets a failure from the payment service (after certain number of retries)
-
 func (m *Manager) processReservations(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(m.cleanupInterval) * time.Second)
 	log.Info().Int("interval_seconds", m.cleanupInterval).Msg("reservation cleanup job started")
